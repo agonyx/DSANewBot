@@ -8,12 +8,13 @@ Feature audit and development roadmap for becoming a complete DSA 5th Edition ta
 
 ### Character Management
 
-| Feature             | Command(s)          | Details                                       |
-| ------------------- | ------------------- | --------------------------------------------- |
-| Character Creation  | `/create-character` | Creates player with name                      |
-| Character Selection | `/choose-character` | Multi-character support per Discord user      |
-| Character Deletion  | `/delete-character` | Remove characters                             |
-| Avatar Upload       | `/upload-avatar`    | Custom character portraits (Supabase storage) |
+| Feature             | Command(s)          | Details                                        |
+| ------------------- | ------------------- | ---------------------------------------------- |
+| Character Creation  | `/create-character` | Creates player with name                       |
+| Character Selection | `/choose-character` | Multi-character support per Discord user       |
+| Character Deletion  | `/delete-character` | Remove characters                              |
+| Avatar Upload       | `/upload-avatar`    | Custom character portraits (Supabase storage)  |
+| Character Export    | `/export-character` | Download a complete UTF-8 text character sheet |
 
 ### Attributes & Stats
 
@@ -98,18 +99,19 @@ Feature audit and development roadmap for becoming a complete DSA 5th Edition ta
 
 ### Utility Commands
 
-| Feature      | Command(s) | Details                                 |
-| ------------ | ---------- | --------------------------------------- |
-| Dice Rolling | `/roll`    | DSA notation (1w20, 3w6+2)              |
-| Healing      | `/heal`    | HP restoration (self or DM heal others) |
-| Evasion      | `/evade`   | d20 vs Ausweichen                       |
-| Help         | `/help`    | Command reference                       |
+| Feature      | Command(s) | Details                                  |
+| ------------ | ---------- | ---------------------------------------- |
+| Dice Rolling | `/roll`    | DSA notation (1w20, 3w6+2)               |
+| Dice Macros  | `/macro`   | Save, list, roll, and delete expressions |
+| Healing      | `/heal`    | HP restoration (self or DM heal others)  |
+| Evasion      | `/evade`   | d20 vs Ausweichen                        |
+| Help         | `/help`    | Command reference                        |
 
 ---
 
 ## ✅ Committed Roadmap Scope
 
-Priorities 1–3 and Development Sprints 1–5 are implemented in the repository. Clean local migration and live integration verification are externally blocked by the unavailable container runtime; evidence and the precise remaining verification work are tracked in `ROADMAP_PROGRESS.md`.
+Priorities 1–3 and Development Sprints 1–5 are implemented and verified. Clean-room migration and integration evidence is tracked in `ROADMAP_PROGRESS.md`.
 
 ### Priority 1: Core Mechanics
 
@@ -207,8 +209,8 @@ Priorities 1–3 and Development Sprints 1–5 are implemented in the repository
 
 ### Quality of Life
 
-- [ ] Character sheet export (PDF/text)
-- [ ] Dice macros (save common rolls)
+- [x] Character sheet export (PDF/text)
+- [x] Dice macros (save common rolls)
 - [ ] Initiative tracker (non-combat)
 - [ ] Party view (DM overview of all players)
 - [x] Quick reference / rule lookups (`/regel`)
@@ -247,6 +249,7 @@ Priorities 1–3 and Development Sprints 1–5 are implemented in the repository
 | Table/group                                           | Status    | Usage                                               |
 | ----------------------------------------------------- | --------- | --------------------------------------------------- |
 | `players`, `stats`                                    | ✅ Active | Character records, attributes, resources, wounds/AP |
+| `dice_macros`                                         | ✅ Active | Per-character reusable dice expressions             |
 | `talents`, `player_talents`                           | ✅ Active | Talent catalog and FW                               |
 | `spells`, `player_spells`, `supernatural_*`           | ✅ Active | Magic profiles, learning, castings, and effects     |
 | `liturgies`, `player_liturgies`                       | ✅ Active | Karma catalog and learned abilities                 |

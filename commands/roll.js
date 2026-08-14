@@ -1,34 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { rollDice } = require('../utils/rollUtil');
-
-function parseDiceNotation(notation) {
-    const match = notation.match(/^(\d+)?w(\d+)([+-]\d+)?$/i);
-    if (!match) return null;
-
-    return {
-        count: parseInt(match[1]) || 1,
-        sides: parseInt(match[2]),
-        modifier: match[3] ? parseInt(match[3]) : 0,
-    };
-}
-
-function rollNotation(notation) {
-    const parsed = parseDiceNotation(notation);
-    if (!parsed) return null;
-
-    const rolls = [];
-    let total = 0;
-
-    for (let i = 0; i < parsed.count; i++) {
-        const roll = rollDice(parsed.sides);
-        rolls.push(roll);
-        total += roll;
-    }
-
-    total += parsed.modifier;
-
-    return { rolls, modifier: parsed.modifier, total };
-}
+const { formatDiceRollBreakdown, rollNotation } = require('../utils/diceUtils');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -40,10 +12,10 @@ module.exports = {
         .addBooleanOption(option => option.setName('visible').setDescription('Make the roll visible to everyone')),
 
     async execute(interaction) {
-        const notation = interaction.options.getString('dice').toLowerCase().replace('d', 'w');
+        const notation = interaction.options.getString('dice');
         const visible = interaction.options.getBoolean('visible') || false;
 
-        const result = rollNotation(notation);
+        const result = rollNotation(notation, rollDice);
 
         if (!result) {
             return interaction.reply({
@@ -52,22 +24,13 @@ module.exports = {
             });
         }
 
-        const rollsDisplay = result.rolls.join(' + ');
-        let modifierDisplay = '';
-
-        if (result.modifier > 0) {
-            modifierDisplay = ` + ${result.modifier}`;
-        } else if (result.modifier < 0) {
-            modifierDisplay = ` - ${Math.abs(result.modifier)}`;
-        }
-
         const embed = new EmbedBuilder()
             .setColor(0x5865f2)
-            .setTitle(`🎲 Dice Roll: ${notation.toUpperCase()}`)
+            .setTitle(`🎲 Dice Roll: ${result.notation.toUpperCase()}`)
             .setDescription(`**Result:** \`${result.total}\``)
             .addFields({
                 name: 'Rolls',
-                value: `\`${rollsDisplay}\`${modifierDisplay}`,
+                value: `\`${formatDiceRollBreakdown(result)}\``,
                 inline: true,
             })
             .setFooter({

@@ -111,6 +111,21 @@ export const stats = pgTable('stats', {
     ap_spent: integer().default(0).notNull(),
 });
 
+export const diceMacros = pgTable(
+    'dice_macros',
+    {
+        id: uuid().primaryKey().defaultRandom(),
+        player_id: integer()
+            .notNull()
+            .references(() => players.id, { onDelete: 'cascade' }),
+        name: text().notNull(),
+        notation: text().notNull(),
+        created_at: timestamp({ withTimezone: true }).defaultNow().notNull(),
+        updated_at: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    },
+    table => [unique('dice_macros_player_id_name_key').on(table.player_id, table.name)]
+);
+
 export const talents = pgTable('talents', {
     id: integer().primaryKey().generatedAlwaysAsIdentity(),
     name: text().notNull().unique(),

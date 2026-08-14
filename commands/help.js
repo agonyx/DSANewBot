@@ -40,7 +40,7 @@ module.exports = {
             .addFields(
                 {
                     name: '👤 Character',
-                    value: '`/create-character` `/choose-character` `/show-stats` `/edit-stats` `/advance` `/schicksalspunkte` `/asp` `/kap` `/regeneration` `/treat-wounds` `/upload-avatar` `/delete-character`',
+                    value: '`/create-character` `/choose-character` `/show-stats` `/export-character` `/edit-stats` `/advance` `/schicksalspunkte` `/asp` `/kap` `/regeneration` `/treat-wounds` `/upload-avatar` `/delete-character`',
                     inline: false,
                 },
                 {
@@ -85,7 +85,7 @@ module.exports = {
                 },
                 {
                     name: '🎲 Utility',
-                    value: '`/roll` `/help`',
+                    value: '`/roll` `/macro` `/help`',
                     inline: false,
                 }
             )
@@ -105,6 +105,7 @@ function getCategoryHelp(category) {
                 { name: '/create-character', value: 'Create a new character' },
                 { name: '/choose-character', value: 'Select which of your characters to play' },
                 { name: '/show-stats', value: "View your character's stats and health" },
+                { name: '/export-character', value: 'Download the selected character sheet as a UTF-8 text file' },
                 { name: '/edit-stats', value: 'Interactively edit your stats' },
                 { name: '/schicksalspunkte', value: 'Spend, restore, set, or show Fate Points' },
                 { name: '/asp', value: 'Spend, restore, set, or show Astral Points' },
@@ -245,6 +246,7 @@ function getCategoryHelp(category) {
             .addFields(
                 { name: '/roll <dice>', value: 'Roll dice using DSA notation (e.g., `/roll 1w20`, `/roll 3w6+2`)' },
                 { name: '/roll <dice> visible:true', value: 'Make the roll visible to everyone' },
+                { name: '/macro save|roll|list|delete', value: 'Manage reusable, per-character dice expressions' },
                 { name: '/help', value: 'Show this help message' },
                 { name: '/help <category>', value: 'Get detailed help for a specific category' }
             ),

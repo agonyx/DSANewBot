@@ -71,6 +71,13 @@
             "when": 1786705040593,
             "tag": "0009_faithful_vance_astro",
             "breakpoints": true
+        },
+        {
+            "idx": 10,
+            "version": "7",
+            "when": 1786713737464,
+            "tag": "0010_skinny_killraven",
+            "breakpoints": true
         }
     ]
 }
