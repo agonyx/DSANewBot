@@ -1,7 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { db } = require('../db');
-const { eq, and } = require('drizzle-orm');
-const { combatantStatuses } = require('../db/schema');
+const { applyStatus, listStatuses, removeStatus } = require('../services/combatEffects');
 const { createLogger } = require('../utils/logger');
 const { STATUS_TYPES, STATUS_LABELS, getStatusEmoji } = require('../utils/conditionUtils');
 
@@ -39,7 +37,7 @@ function findCombatant(interaction, discordUserId) {
 /**
  * Builds a summary embed showing all active statuses for a combatant.
  * @param {string} characterName
- * @param {Array<{ status_type: string, source: string|null, duration_rounds: number|null }>} statuses
+ * @param {Array<{ status_type: string, source: string|null, duration_rounds: number|null, effect_data?: object }>} statuses
  * @param {import('discord.js').User} user - The Discord user for the footer
  * @returns {EmbedBuilder}
  */
@@ -63,7 +61,13 @@ function buildStatusEmbed(characterName, statuses, user) {
         const label = STATUS_LABELS[s.status_type] || s.status_type;
         const duration = s.duration_rounds != null ? ` (${s.duration_rounds} Runden)` : ' (permanent)';
         const source = s.source ? ` — *${s.source}*` : '';
-        return `${emoji} **${label}**${duration}${source}`;
+        const data = s.effect_data || {};
+        const mechanics = [
+            data.damagePerRound ? `${data.damagePerRound} SP/Runde` : null,
+            data.damageProgressionPerRound ? `+${data.damageProgressionPerRound} SP/Runde` : null,
+            data.checkPenalty ? `-${data.checkPenalty} Proben` : null,
+        ].filter(Boolean);
+        return `${emoji} **${label}**${duration}${source}${mechanics.length ? ` — ${mechanics.join(', ')}` : ''}`;
     });
 
     embed.setDescription(lines.join('\n'));
@@ -76,16 +80,8 @@ function buildStatusEmbed(characterName, statuses, user) {
  * @param {string} combatantId
  * @returns {Promise<Array>}
  */
-async function fetchStatuses(combatantId) {
-    return db
-        .select({
-            status_type: combatantStatuses.status_type,
-            source: combatantStatuses.source,
-            duration_rounds: combatantStatuses.duration_rounds,
-        })
-        .from(combatantStatuses)
-        .where(eq(combatantStatuses.combatant_id, combatantId))
-        .orderBy(combatantStatuses.status_type);
+async function fetchStatuses(ctx, combatantId) {
+    return listStatuses(ctx, combatantId);
 }
 
 // ---------------------------------------------------------------------------
@@ -97,32 +93,32 @@ async function handleAdd(interaction) {
     const statusType = interaction.options.getString('status_type');
     const source = interaction.options.getString('source') || null;
     const durationRounds = interaction.options.getInteger('duration_rounds') || null;
+    const damagePerRound = interaction.options.getInteger('damage_per_round');
+    const damageProgressionPerRound = interaction.options.getInteger('damage_progression');
+    const maxDamagePerRound = interaction.options.getInteger('max_damage');
+    const checkPenalty = interaction.options.getInteger('check_penalty');
 
     const { combatant, error: findError } = findCombatant(interaction, targetUser.id);
     if (findError) return interaction.editReply({ content: findError });
 
-    await db
-        .insert(combatantStatuses)
-        .values({
-            combatant_id: combatant.id,
-            status_type: statusType,
-            source,
-            duration_rounds: durationRounds,
-            updated_at: new Date(),
-        })
-        .onConflictDoUpdate({
-            target: [combatantStatuses.combatant_id, combatantStatuses.status_type],
-            set: {
-                source,
-                duration_rounds: durationRounds,
-                updated_at: new Date(),
-            },
-        });
+    const ctx = { discordId: interaction.user.id };
+    await applyStatus(ctx, {
+        combatantId: combatant.id,
+        statusType,
+        source,
+        durationRounds,
+        effectData: {
+            ...(damagePerRound !== null ? { damagePerRound } : {}),
+            ...(damageProgressionPerRound !== null ? { damageProgressionPerRound } : {}),
+            ...(maxDamagePerRound !== null ? { maxDamagePerRound } : {}),
+            ...(checkPenalty !== null ? { checkPenalty } : {}),
+        },
+    });
 
     const label = STATUS_LABELS[statusType] || statusType;
     log.info({ combatantId: combatant.id, statusType }, `Status added: ${label}`);
 
-    const statuses = await fetchStatuses(combatant.id);
+    const statuses = await fetchStatuses(ctx, combatant.id);
 
     // Sync in-memory combatant so combat display reflects the change
     combatant.statuses = statuses;
@@ -142,28 +138,13 @@ async function handleRemove(interaction) {
     const { combatant, error: findError } = findCombatant(interaction, targetUser.id);
     if (findError) return interaction.editReply({ content: findError });
 
-    const deleted = await db
-        .delete(combatantStatuses)
-        .where(
-            and(
-                eq(combatantStatuses.combatant_id, combatant.id),
-                eq(combatantStatuses.status_type, statusType)
-            )
-        )
-        .returning({ id: combatantStatuses.id });
-    const count = deleted.length;
-
     const label = STATUS_LABELS[statusType] || statusType;
-
-    if (count === 0) {
-        return interaction.editReply({
-            content: `ℹ️ **${combatant.name || targetUser.username}** hatte keinen Status **${label}**.`,
-        });
-    }
+    const ctx = { discordId: interaction.user.id };
+    await removeStatus(ctx, { combatantId: combatant.id, statusType });
 
     log.info({ combatantId: combatant.id, statusType }, `Status removed: ${label}`);
 
-    const statuses = await fetchStatuses(combatant.id);
+    const statuses = await fetchStatuses(ctx, combatant.id);
 
     // Sync in-memory combatant so combat display reflects the change
     combatant.statuses = statuses;
@@ -181,7 +162,7 @@ async function handleList(interaction) {
     const { combatant, error: findError } = findCombatant(interaction, targetUser.id);
     if (findError) return interaction.editReply({ content: findError });
 
-    const statuses = await fetchStatuses(combatant.id);
+    const statuses = await fetchStatuses({ discordId: interaction.user.id }, combatant.id);
     const characterName = combatant.name || targetUser.username;
     const embed = buildStatusEmbed(characterName, statuses, interaction.user);
 
@@ -214,6 +195,34 @@ module.exports = {
                         .setName('duration_rounds')
                         .setDescription('Duration in combat rounds (leave empty for permanent)')
                         .setMinValue(1)
+                )
+                .addIntegerOption(opt =>
+                    opt
+                        .setName('damage_per_round')
+                        .setDescription('Ongoing SP per round (poison, fire, disease)')
+                        .setMinValue(0)
+                        .setMaxValue(20)
+                )
+                .addIntegerOption(opt =>
+                    opt
+                        .setName('check_penalty')
+                        .setDescription('Penalty applied by this status')
+                        .setMinValue(0)
+                        .setMaxValue(20)
+                )
+                .addIntegerOption(opt =>
+                    opt
+                        .setName('damage_progression')
+                        .setDescription('Additional SP gained after each round (disease progression)')
+                        .setMinValue(0)
+                        .setMaxValue(20)
+                )
+                .addIntegerOption(opt =>
+                    opt
+                        .setName('max_damage')
+                        .setDescription('Maximum progressive SP per round')
+                        .setMinValue(1)
+                        .setMaxValue(20)
                 )
         )
         .addSubcommand(sub =>

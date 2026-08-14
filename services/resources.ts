@@ -8,11 +8,13 @@
  * actions stays in the command/policy layer, as before.
  */
 import { db } from '../db';
-import { eq, and } from 'drizzle-orm';
-import { players, stats } from '../db/schema';
+import { eq, and, inArray } from 'drizzle-orm';
+import { combatSessions, combatantConditions, combatants, players, stats } from '../db/schema';
 import { httpError } from '../db/operations/errors';
 import { rollRegeneration } from '../utils/regenUtils';
+import { calculateNaturalWoundHealing } from '../utils/woundUtils';
 import type { Ctx } from './_ctx';
+import { recoverRestConditionsForPlayer } from './combatEffects';
 
 export type ResourceKey = 'schicksalspunkte' | 'asp' | 'kap';
 
@@ -86,7 +88,12 @@ export async function getResource(
 ): Promise<ResourceSnapshot> {
     const meta = RESOURCE_TYPES[input.type];
     const { player, stats: row } = await loadTargetSheet(input.targetDiscordId ?? ctx.discordId);
-    return { characterName: player.name, type: input.type, current: col(row, meta.currentCol), max: col(row, meta.maxCol) };
+    return {
+        characterName: player.name,
+        type: input.type,
+        current: col(row, meta.currentCol),
+        max: col(row, meta.maxCol),
+    };
 }
 
 export interface ResourceMutation extends ResourceSnapshot {
@@ -108,7 +115,10 @@ export async function spendResource(
         throw httpError(400, `Not enough ${meta.label}! (Current: ${oldValue}/${max})`);
     }
     const newValue = oldValue - input.amount;
-    await db.update(stats).set({ [meta.currentCol]: newValue }).where(eq(stats.id, row.id));
+    await db
+        .update(stats)
+        .set({ [meta.currentCol]: newValue })
+        .where(eq(stats.id, row.id));
     return { characterName: player.name, type: input.type, oldValue, newValue, current: newValue, max };
 }
 
@@ -124,7 +134,10 @@ export async function restoreResource(
     const newValue = Math.min(oldValue + input.amount, max);
     const actualAmount = newValue - oldValue;
     if (actualAmount > 0) {
-        await db.update(stats).set({ [meta.currentCol]: newValue }).where(eq(stats.id, row.id));
+        await db
+            .update(stats)
+            .set({ [meta.currentCol]: newValue })
+            .where(eq(stats.id, row.id));
     }
     return { characterName: player.name, type: input.type, oldValue, newValue, actualAmount, current: newValue, max };
 }
@@ -139,7 +152,10 @@ export async function setResource(
     const max = col(row, meta.maxCol);
     const oldValue = col(row, meta.currentCol);
     const newValue = Math.max(0, Math.min(input.value, max));
-    await db.update(stats).set({ [meta.currentCol]: newValue }).where(eq(stats.id, row.id));
+    await db
+        .update(stats)
+        .set({ [meta.currentCol]: newValue })
+        .where(eq(stats.id, row.id));
     return { characterName: player.name, type: input.type, oldValue, newValue, current: newValue, max };
 }
 
@@ -172,6 +188,13 @@ export interface RegenResult {
     characterName: string;
     alreadyFull: boolean;
     results: ReturnType<typeof rollRegeneration>['results'];
+    woundsBefore: number;
+    woundsHealed: number;
+    woundsAfter: number;
+    healingBonusApplied: number;
+    painSuppressionExpired: boolean;
+    recoveredConditions: string[];
+    regenerationPenalty: number;
 }
 
 /** Perform a Regenerationsphase: roll 1W6 recovery for LeP (always) and AsP/KaP
@@ -183,11 +206,56 @@ export async function regenerate(ctx: Ctx, input: { targetDiscordId?: string } =
     const fullLe = row.le_current >= row.le_max;
     const fullAsp = row.asp_max === 0 || row.asp_current >= row.asp_max;
     const fullKap = row.kap_max === 0 || row.kap_current >= row.kap_max;
-    if (fullLe && fullAsp && fullKap) {
-        return { characterName: player.name, alreadyFull: true, results: [] };
+    const woundRecoveryPending = row.wounds > 0;
+    const activeConditions = await db
+        .select({
+            id: combatantConditions.id,
+            type: combatantConditions.condition_type,
+            level: combatantConditions.level,
+            durationType: combatantConditions.duration_type,
+        })
+        .from(combatantConditions)
+        .innerJoin(combatants, eq(combatantConditions.combatant_id, combatants.id))
+        .innerJoin(combatSessions, eq(combatants.session_id, combatSessions.id))
+        .where(and(eq(combatants.player_id, player.id), inArray(combatSessions.state, ['SETUP', 'RUNNING', 'PAUSED'])));
+    const restConditions = activeConditions.filter(condition => condition.durationType === 'rest');
+    const exhaustionLevel = activeConditions
+        .filter(condition => condition.type === 'ueberanstrengung')
+        .reduce((highest, condition) => Math.max(highest, condition.level), 0);
+    const regenerationPenalty = exhaustionLevel >= 3 ? -2 : exhaustionLevel >= 2 ? -1 : 0;
+    const treatmentStatePending =
+        row.pending_healing_bonus > 0 ||
+        row.pain_suppression > 0 ||
+        row.pain_suppression_phases > 0 ||
+        row.pain_modifier !== 0;
+    if (
+        fullLe &&
+        fullAsp &&
+        fullKap &&
+        !woundRecoveryPending &&
+        !treatmentStatePending &&
+        restConditions.length === 0
+    ) {
+        return {
+            characterName: player.name,
+            alreadyFull: true,
+            results: [],
+            woundsBefore: row.wounds,
+            woundsHealed: 0,
+            woundsAfter: row.wounds,
+            healingBonusApplied: 0,
+            painSuppressionExpired: false,
+            recoveredConditions: [],
+            regenerationPenalty,
+        };
     }
 
-    const { results } = rollRegeneration(row);
+    const healingBonusApplied = row.pending_healing_bonus;
+    const { results } = rollRegeneration(row, {
+        lepModifier: healingBonusApplied + regenerationPenalty,
+        aspModifier: regenerationPenalty,
+        kapModifier: regenerationPenalty,
+    });
     const update: Record<string, number> = {};
     for (const r of results) {
         if (r.newValue === r.oldValue) continue;
@@ -195,8 +263,50 @@ export async function regenerate(ctx: Ctx, input: { targetDiscordId?: string } =
         else if (r.type === 'asp') update.asp_current = r.newValue;
         else if (r.type === 'kap') update.kap_current = r.newValue;
     }
-    if (Object.keys(update).length > 0) {
-        await db.update(stats).set(update).where(eq(stats.id, row.id));
-    }
-    return { characterName: player.name, alreadyFull: false, results };
+    const woundsHealed = calculateNaturalWoundHealing(row.wounds);
+    const woundsAfter = Math.max(0, row.wounds - woundsHealed);
+    const nextPainPhases = Math.max(0, row.pain_suppression_phases - 1);
+    const painSuppressionExpired = row.pain_suppression > 0 && nextPainPhases === 0;
+    update.wounds = woundsAfter;
+    update.pending_healing_bonus = 0;
+    update.pain_suppression_phases = nextPainPhases;
+    update.pain_suppression = nextPainPhases > 0 ? row.pain_suppression : 0;
+    update.pain_modifier = 0;
+
+    let recoveredConditions: string[] = [];
+    await db.transaction(async tx => {
+        await tx.update(stats).set(update).where(eq(stats.id, row.id));
+        recoveredConditions = await recoverRestConditionsForPlayer(tx, player.id);
+        const activeSessions = await tx
+            .select({ id: combatSessions.id })
+            .from(combatSessions)
+            .where(inArray(combatSessions.state, ['SETUP', 'RUNNING', 'PAUSED']));
+        if (activeSessions.length > 0) {
+            const lepResult = results.find(r => r.type === 'lep');
+            await tx
+                .update(combatants)
+                .set({ current_hp: lepResult?.newValue ?? row.le_current, wounds: woundsAfter })
+                .where(
+                    and(
+                        eq(combatants.player_id, player.id),
+                        inArray(
+                            combatants.session_id,
+                            activeSessions.map(session => session.id)
+                        )
+                    )
+                );
+        }
+    });
+    return {
+        characterName: player.name,
+        alreadyFull: false,
+        results,
+        woundsBefore: row.wounds,
+        woundsHealed,
+        woundsAfter,
+        healingBonusApplied,
+        painSuppressionExpired,
+        recoveredConditions,
+        regenerationPenalty,
+    };
 }

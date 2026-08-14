@@ -3,6 +3,7 @@ const { listWeapons } = require('../services/inventory');
 const { getSelectedPlayer } = require('../services/characters');
 const { readAvatar } = require('../utils/avatarStorage');
 const { createLogger } = require('../utils/logger');
+const { formatCurrency } = require('../utils/economyUtils');
 const log = createLogger('show-weapons');
 
 module.exports = {
@@ -44,14 +45,14 @@ module.exports = {
             if (meleeWeapons.length > 0) {
                 meleeColumn += '**Melee Weapons**\n\n';
                 meleeWeapons.forEach(weapon => {
-                    meleeColumn += `**${weapon.name}**\nType: ${weapon.type.charAt(0).toUpperCase() + weapon.type.slice(1)}\nDamage: ${weapon.tp}\nAT: ${weapon.at}\nPA: ${weapon.pa}\nEquipped: ${weapon.is_equipped === 'Y' ? 'Yes' : 'No'}\nSlot: ${weapon.equipped_slot || 'N/A'}\n​\n`;
+                    meleeColumn += `**#${weapon.id} ${weapon.name}**\nType: ${weapon.type.charAt(0).toUpperCase() + weapon.type.slice(1)}\nTechnique: ${weapon.combat_technique || 'N/A'}\nDamage: ${weapon.tp}\nAT: ${weapon.at}\nPA: ${weapon.pa}${weapon.shield_pa_bonus ? ` (shield +${weapon.shield_pa_bonus})` : ''}\nWeight: ${(weapon.weight_grams / 1000).toFixed(1)} Stein\nValue: ${formatCurrency(weapon.price_kreuzer)}\nHands: ${weapon.is_two_handed ? 'Two' : 'One'}\nEquipped: ${weapon.is_equipped === 'Y' ? 'Yes' : 'No'}\nSlot: ${weapon.equipped_slot || 'N/A'}\n\n`;
                 });
             }
 
             if (rangedWeapons.length > 0) {
                 rangedColumn += '**Ranged Weapons**\n\n';
                 rangedWeapons.forEach(weapon => {
-                    rangedColumn += `**${weapon.name}**\nType: ${weapon.type.charAt(0).toUpperCase() + weapon.type.slice(1)}\nDamage: ${weapon.tp}\nAT: ${weapon.at}\nPA: ${weapon.pa}\nEquipped: ${weapon.is_equipped === 'Y' ? 'Yes' : 'No'}\nSlot: ${weapon.equipped_slot || 'N/A'}\n​\n`;
+                    rangedColumn += `**#${weapon.id} ${weapon.name}**\nType: ${weapon.type.charAt(0).toUpperCase() + weapon.type.slice(1)}\nTechnique: ${weapon.combat_technique || 'N/A'}\nDamage: ${weapon.tp}\nAT: ${weapon.at}\nPA: ${weapon.pa}\nRange: ${weapon.range_close ?? 10}/${weapon.range_medium ?? 50}/${weapon.range_far ?? 100}\nReload: ${weapon.reload_actions ?? 0} action(s)\nWeight: ${(weapon.weight_grams / 1000).toFixed(1)} Stein\nValue: ${formatCurrency(weapon.price_kreuzer)}\nHands: ${weapon.is_two_handed ? 'Two' : 'One'}\nEquipped: ${weapon.is_equipped === 'Y' ? 'Yes' : 'No'}\nSlot: ${weapon.equipped_slot || 'N/A'}\n\n`;
                 });
             }
 

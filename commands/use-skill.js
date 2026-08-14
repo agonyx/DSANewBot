@@ -17,6 +17,25 @@ module.exports = {
                 .setDescription('The combat maneuver to use')
                 .setAutocomplete(true)
                 .setRequired(true)
+        )
+        .addStringOption(option =>
+            option
+                .setName('hit_zone')
+                .setDescription('Optional called-shot zone')
+                .addChoices(
+                    { name: 'Head', value: 'head' },
+                    { name: 'Torso', value: 'torso' },
+                    { name: 'Left arm', value: 'left_arm' },
+                    { name: 'Right arm', value: 'right_arm' },
+                    { name: 'Left leg', value: 'left_leg' },
+                    { name: 'Right leg', value: 'right_leg' }
+                )
+        )
+        .addIntegerOption(option =>
+            option.setName('distance').setDescription('Target distance for ranged attacks').setMinValue(0)
+        )
+        .addIntegerOption(option =>
+            option.setName('cover_penalty').setDescription('Cover penalty (0-4)').setMinValue(0).setMaxValue(4)
         ),
 
     async autocomplete(interaction) {
@@ -45,11 +64,11 @@ module.exports = {
                 )
                 .where(eq(playerActionModifications.player_id, player.id));
 
-            const meleeSkills = skillRows
-                .filter(s => s.skill_id != null && s.skill_action_type === 'MELEE')
+            const combatSkills = skillRows
+                .filter(s => s.skill_id != null && ['MELEE', 'RANGED'].includes(s.skill_action_type))
                 .map(s => ({ id: s.skill_id, name: s.skill_name, action_type: s.skill_action_type }));
 
-            const choices = meleeSkills.map(skill => ({ name: skill.name, value: skill.id }));
+            const choices = combatSkills.map(skill => ({ name: skill.name, value: skill.id }));
             const filtered = choices.filter(choice => choice.name.toLowerCase().startsWith(focusedValue.toLowerCase()));
 
             await interaction.respond(filtered);
@@ -65,6 +84,9 @@ module.exports = {
         const { client, channelId, user } = interaction;
         const targetUser = interaction.options.getUser('target');
         const maneuverId = interaction.options.getString('maneuver');
+        const hitZone = interaction.options.getString('hit_zone');
+        const distance = interaction.options.getInteger('distance');
+        const coverPenalty = interaction.options.getInteger('cover_penalty') || 0;
 
         const sessionData = client.activeCombats.get(channelId);
         if (!sessionData || sessionData.state !== 'RUNNING') {
@@ -76,7 +98,7 @@ module.exports = {
             return interaction.editReply('❌ You are not in this combat.');
         }
 
-        const activeCombatantId = sessionData.turn_order[sessionData.current_turn_index];
+        const activeCombatantId = sessionData.turnOrder[sessionData.currentTurnIndex];
         if (attackerCombatant.id !== activeCombatantId) {
             return interaction.editReply("❌ It's not your turn!");
         }
@@ -107,7 +129,13 @@ module.exports = {
             sessionData.id,
             attackerCombatant.id,
             targetCombatant.id,
-            maneuverId
+            maneuverId,
+            {
+                callerDiscordId: user.id,
+                hitZone,
+                distance,
+                coverPenalty,
+            }
         );
 
         await interaction.editReply(`Your skill use against ${targetUser.username} has been resolved.`);

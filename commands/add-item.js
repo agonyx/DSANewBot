@@ -10,6 +10,9 @@ const ITEM_TYPES = [
     { name: '📜 Scroll', value: 'SCROLL' },
     { name: '⚔️ Weapon', value: 'WEAPON' },
     { name: '🛡️ Armor', value: 'ARMOR' },
+    { name: '👕 Clothing', value: 'CLOTHING' },
+    { name: '🎒 Gear', value: 'GEAR' },
+    { name: '🧪 Consumable', value: 'CONSUMABLE' },
     { name: '💎 Valuable', value: 'VALUABLE' },
     { name: '📦 Misc', value: 'MISC' },
 ];
@@ -37,6 +40,28 @@ module.exports = {
         )
         .addIntegerOption(option =>
             option.setName('quantity').setDescription('Quantity (default: 1)').setRequired(false).setMinValue(1)
+        )
+        .addIntegerOption(option =>
+            option.setName('price_kreuzer').setDescription('Unit value in Kreuzer').setMinValue(0)
+        )
+        .addIntegerOption(option =>
+            option.setName('weight_grams').setDescription('Unit weight in grams').setMinValue(0)
+        )
+        .addStringOption(option =>
+            option
+                .setName('slot')
+                .setDescription('Default equipment slot')
+                .addChoices(
+                    ...['HEAD', 'BODY', 'ARMS', 'HANDS', 'LEGS', 'FEET', 'BACK', 'WAIST', 'NECK', 'ACCESSORY'].map(
+                        slot => ({ name: slot, value: slot })
+                    )
+                )
+        )
+        .addIntegerOption(option =>
+            option.setName('armor_rs').setDescription('Armor protection while equipped').setMinValue(0)
+        )
+        .addIntegerOption(option =>
+            option.setName('armor_be').setDescription('Armor Belastung while equipped').setMinValue(0).setMaxValue(4)
         ),
 
     async execute(interaction) {
@@ -54,7 +79,18 @@ module.exports = {
             // addItem stacks onto an existing same-name+type item, else creates one.
             const item = await addItem(
                 { discordId: interaction.user.id },
-                { name, type, effect, description, quantity }
+                {
+                    name,
+                    type,
+                    effect,
+                    description,
+                    quantity,
+                    priceKreuzer: interaction.options.getInteger('price_kreuzer') || 0,
+                    weightGrams: interaction.options.getInteger('weight_grams') || 0,
+                    defaultSlot: interaction.options.getString('slot'),
+                    armorRs: interaction.options.getInteger('armor_rs') || 0,
+                    armorBe: interaction.options.getInteger('armor_be') || 0,
+                }
             );
 
             const stacked = item.quantity > quantity;
@@ -76,6 +112,15 @@ module.exports = {
                         inline: true,
                     }
                 );
+            embed.addFields(
+                { name: 'Weight', value: `${item.weight_grams} g`, inline: true },
+                { name: 'Value', value: `${item.price_kreuzer} K`, inline: true },
+                {
+                    name: 'Equipment',
+                    value: item.default_slot ? `${item.default_slot} · RS ${item.armor_rs} · BE ${item.armor_be}` : '—',
+                    inline: true,
+                }
+            );
 
             if (item.effect) {
                 embed.addFields({ name: 'Effect', value: item.effect, inline: false });

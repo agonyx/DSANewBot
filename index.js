@@ -52,6 +52,7 @@ const { eq, inArray } = require('drizzle-orm');
 const { combatSessions, combatants, players } = require('./db/schema');
 const { sessionToMemory } = require('./utils/transforms');
 const { getRulePageTitles } = require('./utils/rulesClient');
+const { loadEffectsForCombatants } = require('./services/combatEffects');
 
 const RULE_PAGE_CACHE_REFRESH_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -90,9 +91,18 @@ async function recoverActiveCombats(client) {
         const allCombatants = await db
             .select()
             .from(combatants)
-            .where(inArray(combatants.session_id, sessions.map((s) => s.id)));
+            .where(
+                inArray(
+                    combatants.session_id,
+                    sessions.map(s => s.id)
+                )
+            );
+        const effectState = await loadEffectsForCombatants(allCombatants.map(combatant => combatant.id));
         const combatantsBySession = new Map();
         for (const c of allCombatants) {
+            c.conditions = effectState.get(c.id)?.conditions || [];
+            c.statuses = effectState.get(c.id)?.statuses || [];
+            c.effects = effectState.get(c.id)?.effects || [];
             if (!combatantsBySession.has(c.session_id)) combatantsBySession.set(c.session_id, []);
             combatantsBySession.get(c.session_id).push(c);
         }
@@ -222,6 +232,8 @@ client.on(Events.InteractionCreate, async interaction => {
             customId.startsWith('dmnpc_action') ||
             customId.startsWith('ctsa_') ||
             customId.startsWith('cts_npc_') ||
+            customId.startsWith('npc_skill_pick_') ||
+            customId.startsWith('npc_skill_target_') ||
             customId.startsWith('leave_setup_') ||
             customId.startsWith('manage_participants_') ||
             customId.startsWith('remove_participant_select_') ||

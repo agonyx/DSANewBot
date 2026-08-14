@@ -26,26 +26,26 @@ None. Every command serves a distinct purpose. Closest overlaps:
 | `/condition`         | ✅ Done | Subcommands: add, remove, list. Leveled conditions (Schmerz, Betäubung, etc.) in combat.  |
 | `/status`            | ✅ Done | Subcommands: add, remove, list. Binary status effects (Blutend, Liegend, etc.) in combat. |
 | `/regeneration`      | ✅ Done | Regenerationsphase — rolls 1W6 per energy type (LeP, AsP if caster, KaP if blessed).      |
-| `show-stats` updated | ✅ Done | Displays SchP, AsP, KaP resource bars.                                                    |
+| `show-stats` updated | ✅ Done | Displays SchP, AsP, KaP, AP, wounds, armor, and Belastung.                                |
 | `edit-stats` updated | ✅ Done | All new resource fields editable.                                                         |
 | Combat display       | ✅ Done | Pain levels (P1-P4), condition/status indicators in roster and spotlight.                 |
 
-### Tier 3 — Session Quality of Life
+### Tier 3 — Session Quality of Life ✅ DONE
 
-| Feature                  | Why it matters                                                                                                                  |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| **Loot/Treasure tables** | DMs have no tool for rewarding players after combat. Random loot generation by difficulty/tier.                                 |
-| **Combat log command**   | Handler has `handleShowFullLogInteraction()` but it's button-only — no command to review after combat ends.                     |
-| **Maneuver library**     | Maneuvers exist in `action_modifications` DB table but players can't browse them. Needs `/list-maneuvers` and `/show-maneuver`. |
+| Feature                  | Status  | Evidence                                                                                            |
+| ------------------------ | ------- | --------------------------------------------------------------------------------------------------- |
+| **Loot/Treasure tables** | ✅ Done | `/loot` generates tiered ended-combat pools and distributes catalog items/currency to participants. |
+| **Combat log command**   | ✅ Done | `/combat-log` and the authenticated API expose the latest active or ended log for the channel.      |
+| **Maneuver library**     | ✅ Done | `/list-maneuvers`, `/show-maneuver`, and `/api/maneuvers` use the source-documented seeded catalog. |
 
 ### Tier 4 — Nice to Have (later)
 
 | Feature                         | Notes                                                              |
 | ------------------------------- | ------------------------------------------------------------------ |
-| Spell/Liturgy management        | Full spellcasting system (learn, cast, track costs) — big feature  |
+| Spell/Liturgy management        | ✅ Implemented under the committed Priority 2 roadmap scope        |
 | Advantage/Disadvantage tracking | Character creation completeness                                    |
-| XP/AP tracking & leveling       | Character progression system                                       |
-| Encumbrance                     | Weight-based inventory limits                                      |
+| XP/AP tracking & leveling       | ✅ Implemented as DSA AP purchases (DSA has no numeric levels)     |
+| Encumbrance                     | ✅ Implemented with weight, armor BE, capacity, and penalties      |
 | Character import (Optolith)     | Competitor "Das Weisse Auge" has 2-click hero import from Optolith |
 | Name generator                  | Aventurian NPC names for DMs                                       |
 | Notes/Journal                   | Session notes attached to combat encounters                        |
@@ -60,22 +60,22 @@ The most direct DSA 5e Discord bot competitor. Features they have that we don't:
 - **Botch/Crit tables** — random flavor tables for critical successes and failures
 - **DM secret rolling** — roll checks without players seeing
 - **Group management** — organize players into groups for secret checks
-- **Full resource management** — increase/decrease LP/KP/AP with commands
 
 The playing cards system is what our planned canvas integration could rival.
 
-## Current Command Inventory (43 commands)
+## Current Command Inventory (62 commands)
 
-### Character Management (6)
+### Character Management and Advancement (7)
 
-- `/register` — Create new character
+- `/create-character` — Create new character
 - `/choose-character` — Select active character
 - `/show-stats` — View character attributes
 - `/edit-stats` — Modify character attributes
 - `/upload-avatar` — Set character image
 - `/delete-character` — Remove character
+- `/advance` — Show/award AP and improve attributes, FW, or special abilities
 
-### Combat (8)
+### Combat and Session State (13)
 
 - `/start-combat` — Begin encounter
 - `/end-combat` — Terminate encounter
@@ -85,28 +85,37 @@ The playing cards system is what our planned canvas integration could rival.
 - `/evade` — Dodge attack
 - `/heal` — Restore HP
 - `/use-skill` — Execute combat maneuver
+- `/combat-action` — Full defense, reload, escape, two-weapon, and opportunity actions
+- `/combat-log` — Review active or ended combat logs
+- `/condition` — Manage leveled combat conditions
+- `/status` — Manage binary combat statuses
+- `/effect` — Manage persisted combat buffs/debuffs
 
-### Equipment & Weapons (5)
+### Equipment, Inventory, and Economy (15)
 
 - `/add-weapon` — Create weapon
 - `/show-weapons` — List weapons
 - `/equip-weapon` — Assign weapon to slot
 - `/edit-weapon` — Modify weapon properties
 - `/delete-weapon` — Remove weapon
-
-### Items & Inventory (5)
-
 - `/add-item` — Add inventory item
 - `/show-items` — List inventory
 - `/edit-item` — Modify item properties
 - `/use-item` — Consume item
 - `/remove-item` — Delete inventory item
+- `/equipment` — Equip/wear gear and inspect load, RS, and Belastung
+- `/wallet` — Show or adjust money with an audit ledger
+- `/shop` — Browse, buy, and sell catalog equipment
+- `/trade` — Offer and resolve atomic player trades
+- `/loot` — Generate and distribute post-combat rewards
 
-### Skills & Talents (3)
+### Skills, Talents, and Maneuvers (5)
 
-- `/check` — Perform talent check (Talentprobe)
-- `/manage-skills` — Assign combat skills
+- `/probe` — Perform talent check (Talentprobe)
+- `/edit-skills` — Legacy alias for AP-backed special-ability learning
 - `/show-skills` — List assigned skills
+- `/list-maneuvers` — Browse maneuver catalog
+- `/show-maneuver` — Inspect maneuver rules and prerequisites
 
 ### Mob Management (5)
 
@@ -114,16 +123,25 @@ The playing cards system is what our planned canvas integration could rival.
 - `/edit-mob` — Modify mob template
 - `/delete-mob` — Delete mob template
 - `/list-mobs` — View all templates
-- `/view-mob` — View specific template
+- `/show-mob` — View specific template
 
-### Resources & Conditions (6) — NEW (Tier 2)
+### Magic and Karma (9)
 
-- `/schicksalspunkte` — Manage fate points (spend/restore/set/show)
 - `/asp` — Manage Astralpunkte (spend/restore/show)
 - `/kap` — Manage Karmapunkte (spend/restore/show)
-- `/condition` — Add/remove/list conditions on combatants
-- `/status` — Add/remove/list status effects on combatants
-- `/regeneration` — Roll Regenerationsphase (1W6 per energy type)
+- `/spells` — Browse, learn, inspect, and cast spells/rituals
+- `/liturgies` — Browse, learn, inspect, and perform liturgies/ceremonies
+- `/tradition` — Configure magical/blessed traditions and deity
+- `/miracle` — Use favored-talent/attack/defense miracles
+- `/complete-casting` — Complete a pending ritual or ceremony
+- `/cancel-casting` — Interrupt a pending casting with the documented refund
+- `/supernatural-effects` — Inspect pending castings and tracked effects
+
+### Resources and Wounds (3)
+
+- `/schicksalspunkte` — Manage fate points (spend/restore/set/show)
+- `/regeneration` — Roll regeneration for LeP/AsP/KaP and natural wound healing
+- `/treat-wounds` — Treat healing, pain, stabilization, or bleeding
 
 ### Regelwiki (1)
 
@@ -141,9 +159,9 @@ The playing cards system is what our planned canvas integration could rival.
 
 ## Implementation Priority
 
-1. **Fix naming** (Tier 0) — rename `register`, `check`, `view-mob`, `manage-skills`
+1. ~~**Fix naming** (Tier 0) — `create-character`, `probe`, `show-mob`, `edit-skills`~~ ✅ DONE
 2. ~~**CRUD gaps** (Tier 1) — `edit-weapon`, `edit-item`, `delete-mob`~~ ✅ DONE
 3. ~~**Core DSA resources** (Tier 2) — fate points, astral/karma points, conditions, rest/regen~~ ✅ DONE
-4. **DM tools** (Tier 3) — loot tables, combat log command, maneuver library
+4. ~~**DM tools** (Tier 3) — loot tables, combat log command, maneuver library~~ ✅ DONE
 5. **Canvas integration** — visual character cards, combat display, stat blocks
-6. **Advanced features** (Tier 4) — spells, advantages/disadvantages, XP, encumbrance
+6. **Nice-to-have remainder** (Tier 4) — advantages/disadvantages and other explicitly deferred ideas

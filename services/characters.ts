@@ -11,10 +11,30 @@ import type { Ctx } from './_ctx';
 
 /** Columns a caller is allowed to set via updateStat. */
 const ALLOWED_STATS = new Set([
-    'mu', 'kl', 'in', 'ch', 'ff', 'ge', 'ko', 'kk',
-    'le_max', 'le_current', 'asp_max', 'asp_current',
-    'kap_max', 'kap_current', 'schicksalspunkte_max', 'schicksalspunkte_current',
-    'initiative', 'ruestungsschutz', 'ausweichen', 'attacke_basis', 'parade_basis',
+    'mu',
+    'kl',
+    'in',
+    'ch',
+    'ff',
+    'ge',
+    'ko',
+    'kk',
+    'le_max',
+    'le_current',
+    'asp_max',
+    'asp_current',
+    'wounds',
+    'wound_threshold_modifier',
+    'kap_max',
+    'kap_current',
+    'schicksalspunkte_max',
+    'schicksalspunkte_current',
+    'initiative',
+    'ruestungsschutz',
+    'natural_armor',
+    'ausweichen',
+    'attacke_basis',
+    'parade_basis',
 ]);
 
 /** Create a new character for the caller (keys stats + player_talents off ctx.discordId). */
@@ -56,9 +76,25 @@ export async function updateStat(ctx: Ctx, input: { statKey: string; value: numb
     if (!ALLOWED_STATS.has(input.statKey)) {
         throw httpError(400, `Invalid stat key: ${input.statKey}`);
     }
+    if (!Number.isInteger(input.value)) throw httpError(400, 'Stat value must be an integer');
+    if (input.statKey === 'wounds' && input.value < 0) {
+        throw httpError(400, 'Wounds cannot be negative');
+    }
+    if (['ruestungsschutz', 'natural_armor'].includes(input.statKey) && input.value < 0) {
+        throw httpError(400, 'Natural armor cannot be negative');
+    }
     const { player } = await getCharacterSheet(ctx); // ensures ownership + selected
-    await db.update(stats).set({ [input.statKey]: input.value }).where(eq(stats.player_id, player.id));
-    return { statKey: input.statKey, value: input.value };
+    const persistedKey = input.statKey === 'ruestungsschutz' ? 'natural_armor' : input.statKey;
+    await db
+        .update(stats)
+        .set({ [persistedKey]: input.value })
+        .where(eq(stats.player_id, player.id));
+    if (persistedKey === 'natural_armor' || persistedKey === 'kk') {
+        const { synchronizeEquipmentDerivedStatsForPlayer } = await import('./equipment');
+        await synchronizeEquipmentDerivedStatsForPlayer(player.id);
+    }
+    const [updated] = await db.select().from(stats).where(eq(stats.player_id, player.id)).limit(1);
+    return { statKey: input.statKey, value: updated?.[input.statKey as keyof typeof updated] ?? input.value };
 }
 
 /** Delete a character owned by the caller (CASCADE removes stats, talents, weapons, items). */

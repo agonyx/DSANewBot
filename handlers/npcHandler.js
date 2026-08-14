@@ -11,6 +11,8 @@ const { ButtonBuilder } = require('@discordjs/builders');
 
 const { createLogger } = require('../utils/logger');
 const { getOrLoadSession, resolveCombatAction, createManagementActionRow } = require('./combatTurnHandler');
+const { db } = require('../db');
+const { actionModifications } = require('../db/schema');
 
 const log = createLogger('npc-handler');
 
@@ -164,7 +166,9 @@ async function handleDmNpcTargetSelectAttack(interaction, sessionId, actorId) {
 
     try {
         log.debug({ sessionId, actorId, targetId }, 'Resolving NPC combat action');
-        await resolveCombatAction(client, channelId, sessionId, actorId, targetId, null);
+        await resolveCombatAction(client, channelId, sessionId, actorId, targetId, null, {
+            callerDiscordId: interaction.user.id,
+        });
 
         await interaction.editReply({ content: `✅ Attack by **${attacker.name}** resolved.`, components: [] });
 
@@ -190,7 +194,79 @@ async function handleDmNpcTargetSelectAttack(interaction, sessionId, actorId) {
  */
 async function handleDmNpcSkillAction(interaction, sessionId, actorId) {
     log.info({ sessionId, actorId, userId: interaction.user.id }, 'Handling DM NPC Skill Action');
-    await interaction.reply({ content: 'NPC skill actions are not implemented yet.', ephemeral: true });
+    await interaction.deferReply({ ephemeral: true });
+    const sessionData = await getOrLoadSession(interaction.client, interaction.channelId);
+    if (!sessionData || sessionData.id !== sessionId) {
+        return interaction.editReply('❌ Active combat not found.');
+    }
+    if (sessionData.dmUserId !== interaction.user.id) {
+        return interaction.editReply('❌ Only the combat DM may control NPCs.');
+    }
+    if (sessionData.turnOrder[sessionData.currentTurnIndex] !== actorId) {
+        return interaction.editReply("❌ It's not this NPC's turn.");
+    }
+    const maneuvers = await db.select().from(actionModifications).orderBy(actionModifications.name);
+    const usable = maneuvers.filter(maneuver => ['MELEE', 'RANGED'].includes(maneuver.action_type));
+    if (usable.length === 0) return interaction.editReply('ℹ️ No combat maneuvers are available.');
+    const menu = new StringSelectMenuBuilder()
+        .setCustomId(`npc_skill_pick_${sessionId}_${actorId}`)
+        .setPlaceholder('Choose an NPC maneuver...')
+        .addOptions(
+            usable.slice(0, 25).map(maneuver =>
+                new StringSelectMenuOptionBuilder()
+                    .setLabel(maneuver.name.substring(0, 100))
+                    .setDescription((maneuver.description || 'Combat maneuver').substring(0, 100))
+                    .setValue(maneuver.id)
+            )
+        );
+    return interaction.editReply({
+        content: 'Choose the NPC maneuver:',
+        components: [new ActionRowBuilder().addComponents(menu)],
+    });
+}
+
+async function handleDmNpcSkillSelect(interaction, sessionId, actorId) {
+    const maneuverId = interaction.values[0];
+    const sessionData = await getOrLoadSession(interaction.client, interaction.channelId);
+    if (!sessionData || sessionData.id !== sessionId || sessionData.dmUserId !== interaction.user.id) {
+        return interaction.update({ content: '❌ Combat session or DM authorization is invalid.', components: [] });
+    }
+    const actor = sessionData.combatants.find(combatant => combatant.id === actorId);
+    const targets = sessionData.combatants.filter(
+        combatant => combatant.id !== actorId && combatant.currentHP > 0 && combatant.allegiance !== actor?.allegiance
+    );
+    if (!actor || targets.length === 0) {
+        return interaction.update({ content: 'ℹ️ No valid NPC maneuver target.', components: [] });
+    }
+    const menu = new StringSelectMenuBuilder()
+        .setCustomId(`npc_skill_target_${sessionId}_${actorId}`)
+        .setPlaceholder('Choose the NPC maneuver target...')
+        .addOptions(
+            targets
+                .slice(0, 25)
+                .map(target =>
+                    new StringSelectMenuOptionBuilder()
+                        .setLabel(`${target.name} (${target.currentHP}/${target.maxHP} HP)`.substring(0, 100))
+                        .setValue(`${target.id}:${maneuverId}`)
+                )
+        );
+    return interaction.update({
+        content: `Choose a target for **${actor.name}**:`,
+        components: [new ActionRowBuilder().addComponents(menu)],
+    });
+}
+
+async function handleDmNpcSkillTargetSelect(interaction, sessionId, actorId) {
+    await interaction.deferUpdate();
+    const [targetId, maneuverId] = interaction.values[0].split(':');
+    const sessionData = await getOrLoadSession(interaction.client, interaction.channelId);
+    if (!sessionData || sessionData.id !== sessionId || sessionData.dmUserId !== interaction.user.id) {
+        return interaction.followUp({ content: '❌ Combat session or DM authorization is invalid.', ephemeral: true });
+    }
+    await resolveCombatAction(interaction.client, interaction.channelId, sessionId, actorId, targetId, maneuverId, {
+        callerDiscordId: interaction.user.id,
+    });
+    return interaction.editReply({ content: '✅ NPC maneuver resolved.', components: [] });
 }
 
 module.exports = {
@@ -198,4 +274,6 @@ module.exports = {
     handleDmNpcAttackAction,
     handleDmNpcTargetSelectAttack,
     handleDmNpcSkillAction,
+    handleDmNpcSkillSelect,
+    handleDmNpcSkillTargetSelect,
 };

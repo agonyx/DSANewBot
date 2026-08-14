@@ -3,7 +3,7 @@ import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createApiApp } from '../../api';
 import { db, closeDb } from '../../db';
-import { players } from '../../db/schema';
+import { players, stats } from '../../db/schema';
 import { eq } from 'drizzle-orm';
 
 const TEST_DISCORD_ID = `test-api-res-${Date.now()}`;
@@ -15,8 +15,7 @@ const json = (method: string, body?: unknown) => ({
     body: body === undefined ? undefined : JSON.stringify(body),
 });
 
-const setStat = (statKey: string, value: number) =>
-    app.request('/characters/stats', json('PATCH', { statKey, value }));
+const setStat = (statKey: string, value: number) => app.request('/characters/stats', json('PATCH', { statKey, value }));
 
 describe('resources API (live DB)', () => {
     let characterId: number;
@@ -34,9 +33,12 @@ describe('resources API (live DB)', () => {
 
         // SchP 5/10, LeP 10/20, AsP 3/10 (KaP stays 0 → non-blessed)
         for (const [k, v] of [
-            ['schicksalspunkte_max', 10], ['schicksalspunkte_current', 5],
-            ['le_max', 20], ['le_current', 10],
-            ['asp_max', 10], ['asp_current', 3],
+            ['schicksalspunkte_max', 10],
+            ['schicksalspunkte_current', 5],
+            ['le_max', 20],
+            ['le_current', 10],
+            ['asp_max', 10],
+            ['asp_current', 3],
         ] as [string, number][]) {
             assert.equal((await setStat(k, v)).status, 200);
         }
@@ -64,14 +66,18 @@ describe('resources API (live DB)', () => {
 
     it('POST /resources/:type/restore caps at max and reports actualAmount', async () => {
         await setStat('schicksalspunkte_current', 5);
-        const res = await (await app.request('/resources/schicksalspunkte/restore', json('POST', { amount: 50 }))).json();
+        const res = await (
+            await app.request('/resources/schicksalspunkte/restore', json('POST', { amount: 50 }))
+        ).json();
         assert.equal(res.newValue, 10);
         assert.equal(res.actualAmount, 5);
     });
 
     it('restore at max → actualAmount 0, no change', async () => {
         await setStat('schicksalspunkte_current', 10);
-        const res = await (await app.request('/resources/schicksalspunkte/restore', json('POST', { amount: 5 }))).json();
+        const res = await (
+            await app.request('/resources/schicksalspunkte/restore', json('POST', { amount: 5 }))
+        ).json();
         assert.equal(res.actualAmount, 0);
         assert.equal(res.newValue, 10);
     });
@@ -119,9 +125,34 @@ describe('resources API (live DB)', () => {
         }
     });
 
+    it('POST /regenerate consumes treatment state and heals one aggregate wound', async () => {
+        await setStat('le_current', 20);
+        await setStat('asp_current', 10);
+        await setStat('wounds', 2);
+        await db
+            .update(stats)
+            .set({ pending_healing_bonus: 3, pain_suppression: 2, pain_suppression_phases: 1 })
+            .where(eq(stats.player_id, characterId));
+
+        const res = await (await app.request('/regenerate', json('POST', {}))).json();
+        assert.equal(res.alreadyFull, false);
+        assert.equal(res.woundsBefore, 2);
+        assert.equal(res.woundsHealed, 1);
+        assert.equal(res.woundsAfter, 1);
+        assert.equal(res.healingBonusApplied, 3);
+        assert.equal(res.painSuppressionExpired, true);
+
+        const [row] = await db.select().from(stats).where(eq(stats.player_id, characterId));
+        assert.equal(row.wounds, 1);
+        assert.equal(row.pending_healing_bonus, 0);
+        assert.equal(row.pain_suppression, 0);
+        assert.equal(row.pain_suppression_phases, 0);
+    });
+
     it('POST /regenerate when fully rested → alreadyFull true', async () => {
         await setStat('le_current', 20); // le_max=20
         await setStat('asp_current', 10); // asp_max=10
+        await setStat('wounds', 0);
         const res = await (await app.request('/regenerate', json('POST', {}))).json();
         assert.equal(res.alreadyFull, true);
         assert.equal(res.results.length, 0);

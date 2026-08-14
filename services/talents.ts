@@ -9,12 +9,14 @@
  * state. Clients (Discord embed, website JSON) render that state themselves.
  */
 import { db } from '../db';
-import { eq, and } from 'drizzle-orm';
-import { talents, playerTalents } from '../db/schema';
+import { eq, and, inArray } from 'drizzle-orm';
+import { combatants, combatSessions, talents, playerTalents } from '../db/schema';
 import { httpError } from '../db/operations/errors';
 import { getCharacterSheet } from './characters';
 import { rollDice } from '../utils/rollUtil';
+import { calculateWoundPenalty } from '../utils/woundUtils';
 import type { Ctx } from './_ctx';
+import { getCombatantModifiers } from './combatEffects';
 
 const VALID_ATTRS = new Set(['mu', 'kl', 'in', 'ch', 'ff', 'ge', 'ko', 'kk']);
 
@@ -85,6 +87,8 @@ export interface ProbeResult extends EvaluateProbeResult {
     talent: { id: number; name: string; stat1: string; stat2: string; stat3: string };
     baseFtw: number;
     modifier: number;
+    woundPenalty: number;
+    conditionModifier: number;
     rolls: [number, number, number];
 }
 
@@ -117,6 +121,7 @@ export async function resolveProbe(ctx: Ctx, input: ResolveProbeInput): Promise<
             talent_stat1: talents.stat1,
             talent_stat2: talents.stat2,
             talent_stat3: talents.stat3,
+            affected_by_encumbrance: talents.affected_by_encumbrance,
         })
         .from(playerTalents)
         .innerJoin(talents, eq(playerTalents.talent_id, talents.id))
@@ -127,12 +132,27 @@ export async function resolveProbe(ctx: Ctx, input: ResolveProbeInput): Promise<
     }
 
     const attrCodes: [string, string, string] = [learned.talent_stat1, learned.talent_stat2, learned.talent_stat3];
+    const woundPenalty = calculateWoundPenalty(stats.wounds);
+    const [activeCombatant] = await db
+        .select({ combatant: combatants })
+        .from(combatants)
+        .innerJoin(combatSessions, eq(combatants.session_id, combatSessions.id))
+        .where(and(eq(combatants.player_id, player.id), inArray(combatSessions.state, ['RUNNING', 'PAUSED'])))
+        .limit(1);
+    const combatModifierState = activeCombatant ? await getCombatantModifiers(activeCombatant.combatant) : null;
+    const conditionModifier = combatModifierState
+        ? learned.affected_by_encumbrance
+            ? combatModifierState.modifiers.checkModifier
+            : combatModifierState.unencumberedCheckModifier
+        : learned.affected_by_encumbrance
+          ? -stats.belastung
+          : 0;
     // Legacy rule preserved from commands/probe.js: an unset (0) attribute counts
     // as the average (8) for the probe. Unknown stat codes also fall back to 8.
-    const attrValues = attrCodes.map((code) => {
+    const attrValues = attrCodes.map(code => {
         const key = code.toLowerCase();
         const raw = VALID_ATTRS.has(key) ? (stats as Record<string, number>)[key] : 0;
-        return raw || 8;
+        return Math.max(0, (raw || 8) - woundPenalty + conditionModifier);
     }) as [number, number, number];
 
     const rolls: [number, number, number] = [rollDice(20), rollDice(20), rollDice(20)];
@@ -149,6 +169,8 @@ export async function resolveProbe(ctx: Ctx, input: ResolveProbeInput): Promise<
         },
         baseFtw: learned.ftw,
         modifier,
+        woundPenalty,
+        conditionModifier,
         rolls,
         ...evalResult,
     };
@@ -159,7 +181,7 @@ export async function listTalents(_ctx: Ctx) {
     return db.select().from(talents).orderBy(talents.name);
 }
 
-/** Assign (or re-rate) a learned talent (skill) on the caller's selected character. */
+/** Explicit owner/tabletop override for importing or correcting a paper-sheet talent value. */
 export async function assignSkill(ctx: Ctx, input: { talentId: number; ftw: number }) {
     if (!Number.isInteger(input.talentId) || input.talentId <= 0) {
         throw httpError(400, 'talentId must be a positive integer');
@@ -172,7 +194,7 @@ export async function assignSkill(ctx: Ctx, input: { talentId: number; ftw: numb
     const [talent] = await db.select({ id: talents.id }).from(talents).where(eq(talents.id, input.talentId)).limit(1);
     if (!talent) throw httpError(404, 'Talent not found');
 
-    // No unique constraint on (player_id, talent_id), so upsert by lookup.
+    // Keep the explicit lookup so this works both before and after migration 0008's unique constraint.
     const [existing] = await db
         .select({ id: playerTalents.id })
         .from(playerTalents)
@@ -205,6 +227,9 @@ export async function listSkills(ctx: Ctx) {
             stat1: talents.stat1,
             stat2: talents.stat2,
             stat3: talents.stat3,
+            category: talents.category,
+            advancement_factor: talents.advancement_factor,
+            affected_by_encumbrance: talents.affected_by_encumbrance,
             ftw: playerTalents.ftw,
         })
         .from(playerTalents)

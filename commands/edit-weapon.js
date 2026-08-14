@@ -13,16 +13,100 @@ const { db } = require('../db');
 const { eq, and } = require('drizzle-orm');
 const { players, weapons } = require('../db/schema');
 const { createLogger } = require('../utils/logger');
+const { synchronizeEquipmentDerivedStatsInTransaction } = require('../services/equipment');
 const log = createLogger('edit-weapon');
 
 const WEAPON_STAT_CONFIG = [
     { key: 'name', backendKey: 'name', label: 'Name', type: 'string', style: TextInputStyle.Short },
     { key: 'type', backendKey: 'type', label: 'Type (MELEE/RANGED)', type: 'weapon_type', style: TextInputStyle.Short },
-    { key: 'tp', backendKey: 'tp', label: 'Damage (TP)', type: 'damage', validationRegex: /^\d+[wW]\d+(\s*[+-]\s*\d+)?$/, style: TextInputStyle.Short },
+    {
+        key: 'technique',
+        backendKey: 'combat_technique',
+        label: 'Combat Technique',
+        type: 'string',
+        style: TextInputStyle.Short,
+    },
+    {
+        key: 'tp',
+        backendKey: 'tp',
+        label: 'Damage (TP)',
+        type: 'damage',
+        validationRegex: /^\d+[wW]\d+(\s*[+-]\s*\d+)?$/,
+        style: TextInputStyle.Short,
+    },
     { key: 'at', backendKey: 'at', label: 'Attack (AT)', type: 'integer', min: 0, style: TextInputStyle.Short },
     { key: 'pa', backendKey: 'pa', label: 'Parry (PA)', type: 'integer', min: 0, style: TextInputStyle.Short },
+    {
+        key: 'range_close',
+        backendKey: 'range_close',
+        label: 'Close Range',
+        type: 'integer',
+        min: 1,
+        style: TextInputStyle.Short,
+    },
+    {
+        key: 'range_medium',
+        backendKey: 'range_medium',
+        label: 'Medium Range',
+        type: 'integer',
+        min: 1,
+        style: TextInputStyle.Short,
+    },
+    {
+        key: 'range_far',
+        backendKey: 'range_far',
+        label: 'Far Range',
+        type: 'integer',
+        min: 1,
+        style: TextInputStyle.Short,
+    },
+    {
+        key: 'reload',
+        backendKey: 'reload_actions',
+        label: 'Reload Actions',
+        type: 'integer',
+        min: 0,
+        style: TextInputStyle.Short,
+    },
+    {
+        key: 'two_handed',
+        backendKey: 'is_two_handed',
+        label: 'Two Handed (true/false)',
+        type: 'boolean',
+        style: TextInputStyle.Short,
+    },
     { key: 'equipped', backendKey: 'is_equipped', label: 'Equipped (Y/N)', type: 'yn', style: TextInputStyle.Short },
-    { key: 'slot', backendKey: 'equipped_slot', label: 'Slot (ADAPTIVE/OFFENSE/DEFENSE)', type: 'slot', style: TextInputStyle.Short },
+    {
+        key: 'slot',
+        backendKey: 'equipped_slot',
+        label: 'Slot (ADAPTIVE/OFFENSE/DEFENSE)',
+        type: 'slot',
+        style: TextInputStyle.Short,
+    },
+    {
+        key: 'price',
+        backendKey: 'price_kreuzer',
+        label: 'Value (Kreuzer)',
+        type: 'integer',
+        min: 0,
+        style: TextInputStyle.Short,
+    },
+    {
+        key: 'weight',
+        backendKey: 'weight_grams',
+        label: 'Weight (grams)',
+        type: 'integer',
+        min: 0,
+        style: TextInputStyle.Short,
+    },
+    {
+        key: 'shield_bonus',
+        backendKey: 'shield_pa_bonus',
+        label: 'Shield PA Bonus',
+        type: 'integer',
+        min: 0,
+        style: TextInputStyle.Short,
+    },
 ];
 
 module.exports = {
@@ -46,10 +130,7 @@ module.exports = {
                 });
             }
 
-            player.weapons = await db
-                .select()
-                .from(weapons)
-                .where(eq(weapons.player_id, player.id));
+            player.weapons = await db.select().from(weapons).where(eq(weapons.player_id, player.id));
 
             if (!player.weapons || player.weapons.length === 0) {
                 return interaction.editReply({
@@ -100,11 +181,24 @@ module.exports = {
                     .setTitle(`⚔️ Editing Weapon: ${weaponData.name}`)
                     .addFields(
                         { name: 'Type', value: weaponData.type || 'N/A', inline: true },
+                        { name: 'Technique', value: weaponData.combat_technique || 'N/A', inline: true },
                         { name: 'TP', value: weaponData.tp || 'N/A', inline: true },
                         { name: 'AT', value: String(weaponData.at ?? 'N/A'), inline: true },
                         { name: 'PA', value: String(weaponData.pa ?? 'N/A'), inline: true },
+                        {
+                            name: 'Range',
+                            value:
+                                weaponData.type === 'RANGED'
+                                    ? `${weaponData.range_close}/${weaponData.range_medium}/${weaponData.range_far}`
+                                    : 'Melee',
+                            inline: true,
+                        },
+                        { name: 'Reload', value: String(weaponData.reload_actions ?? 0), inline: true },
                         { name: 'Equipped', value: weaponData.is_equipped || 'N', inline: true },
-                        { name: 'Slot', value: weaponData.equipped_slot || 'None', inline: true }
+                        { name: 'Slot', value: weaponData.equipped_slot || 'None', inline: true },
+                        { name: 'Weight', value: `${weaponData.weight_grams ?? 0} g`, inline: true },
+                        { name: 'Value', value: `${weaponData.price_kreuzer ?? 0} K`, inline: true },
+                        { name: 'Shield Bonus', value: String(weaponData.shield_pa_bonus ?? 0), inline: true }
                     );
 
             const exitButton = new ButtonBuilder()
@@ -120,7 +214,7 @@ module.exports = {
                 await modalInteraction.deferUpdate({ ephemeral: true });
 
                 try {
-                    const statKey = modalInteraction.customId.split('_')[2];
+                    const statKey = modalInteraction.customId.slice('editweapon_modal_'.length);
                     const newValue = modalInteraction.fields.getTextInputValue('value');
                     const statConfig = WEAPON_STAT_CONFIG.find(s => s.key === statKey);
                     if (!statConfig || !currentWeapon) return;
@@ -141,6 +235,9 @@ module.exports = {
                         const upper = newValue.toUpperCase();
                         if (upper !== 'Y' && upper !== 'N') return;
                         validatedValue = upper;
+                    } else if (statConfig.type === 'boolean') {
+                        if (!['true', 'false'].includes(newValue.toLowerCase())) return;
+                        validatedValue = newValue.toLowerCase() === 'true';
                     } else if (statConfig.type === 'slot') {
                         if (newValue.trim() === '') {
                             validatedValue = null;
@@ -155,16 +252,19 @@ module.exports = {
 
                     if (currentWeapon[statConfig.backendKey] === validatedValue) return;
 
-                    await db
-                        .update(weapons)
-                        .set({ [statConfig.backendKey]: validatedValue })
-                        .where(eq(weapons.id, currentWeapon.id));
-
-                    const [refreshedData] = await db
-                        .select()
-                        .from(weapons)
-                        .where(eq(weapons.id, currentWeapon.id))
-                        .limit(1);
+                    const refreshedData = await db.transaction(async tx => {
+                        await tx
+                            .update(weapons)
+                            .set({ [statConfig.backendKey]: validatedValue })
+                            .where(and(eq(weapons.id, currentWeapon.id), eq(weapons.player_id, player.id)));
+                        await synchronizeEquipmentDerivedStatsInTransaction(tx, player.id);
+                        const [updated] = await tx
+                            .select()
+                            .from(weapons)
+                            .where(eq(weapons.id, currentWeapon.id))
+                            .limit(1);
+                        return updated;
+                    });
 
                     if (!refreshedData) throw new Error('Weapon not found after update');
                     currentWeapon = refreshedData;

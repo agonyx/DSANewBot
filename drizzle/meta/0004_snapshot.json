@@ -1,0 +1,1935 @@
+{
+    "id": "06d21e7c-6ae2-4fd1-a779-6108fcddcfec",
+    "prevId": "51591706-c6de-4883-8c27-62fc82b765ec",
+    "version": "7",
+    "dialect": "postgresql",
+    "tables": {
+        "public.action_modifications": {
+            "name": "action_modifications",
+            "schema": "",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "uuid",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "default": "gen_random_uuid()"
+                },
+                "name": {
+                    "name": "name",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "description": {
+                    "name": "description",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "action_type": {
+                    "name": "action_type",
+                    "type": "action_type",
+                    "typeSchema": "public",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "prerequisites": {
+                    "name": "prerequisites",
+                    "type": "jsonb",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "rules": {
+                    "name": "rules",
+                    "type": "jsonb",
+                    "primaryKey": false,
+                    "notNull": false
+                }
+            },
+            "indexes": {},
+            "foreignKeys": {},
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {
+                "action_modifications_name_unique": {
+                    "name": "action_modifications_name_unique",
+                    "nullsNotDistinct": false,
+                    "columns": ["name"]
+                }
+            },
+            "policies": {},
+            "checkConstraints": {},
+            "isRLSEnabled": false
+        },
+        "public.combat_sessions": {
+            "name": "combat_sessions",
+            "schema": "",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "uuid",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "default": "gen_random_uuid()"
+                },
+                "channel_id": {
+                    "name": "channel_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "dm_user_id": {
+                    "name": "dm_user_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "message_id": {
+                    "name": "message_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "state": {
+                    "name": "state",
+                    "type": "combat_state",
+                    "typeSchema": "public",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "'SETUP'"
+                },
+                "turn_order": {
+                    "name": "turn_order",
+                    "type": "text[]",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "'{}'::text[]"
+                },
+                "current_turn_index": {
+                    "name": "current_turn_index",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "current_round": {
+                    "name": "current_round",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "combat_log": {
+                    "name": "combat_log",
+                    "type": "text[]",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "'{}'::text[]"
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "now()"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "now()"
+                }
+            },
+            "indexes": {},
+            "foreignKeys": {},
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "policies": {},
+            "checkConstraints": {},
+            "isRLSEnabled": false
+        },
+        "public.combatant_conditions": {
+            "name": "combatant_conditions",
+            "schema": "",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "uuid",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "default": "gen_random_uuid()"
+                },
+                "combatant_id": {
+                    "name": "combatant_id",
+                    "type": "uuid",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "condition_type": {
+                    "name": "condition_type",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "level": {
+                    "name": "level",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "source": {
+                    "name": "source",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "duration_type": {
+                    "name": "duration_type",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "duration_remaining": {
+                    "name": "duration_remaining",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "now()"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "now()"
+                }
+            },
+            "indexes": {},
+            "foreignKeys": {
+                "combatant_conditions_combatant_id_combatants_id_fk": {
+                    "name": "combatant_conditions_combatant_id_combatants_id_fk",
+                    "tableFrom": "combatant_conditions",
+                    "tableTo": "combatants",
+                    "columnsFrom": ["combatant_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {
+                "combatant_conditions_combatant_id_condition_type_key": {
+                    "name": "combatant_conditions_combatant_id_condition_type_key",
+                    "nullsNotDistinct": false,
+                    "columns": ["combatant_id", "condition_type"]
+                }
+            },
+            "policies": {},
+            "checkConstraints": {},
+            "isRLSEnabled": false
+        },
+        "public.combatant_effects": {
+            "name": "combatant_effects",
+            "schema": "",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "uuid",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "default": "gen_random_uuid()"
+                },
+                "combatant_id": {
+                    "name": "combatant_id",
+                    "type": "uuid",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "effect_type": {
+                    "name": "effect_type",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "source": {
+                    "name": "source",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "at_modifier": {
+                    "name": "at_modifier",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "pa_modifier": {
+                    "name": "pa_modifier",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "damage_modifier": {
+                    "name": "damage_modifier",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "armor_modifier": {
+                    "name": "armor_modifier",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "check_modifier": {
+                    "name": "check_modifier",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "prohibits_actions": {
+                    "name": "prohibits_actions",
+                    "type": "boolean",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": false
+                },
+                "prohibits_defense": {
+                    "name": "prohibits_defense",
+                    "type": "boolean",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": false
+                },
+                "duration_rounds": {
+                    "name": "duration_rounds",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "now()"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "now()"
+                }
+            },
+            "indexes": {},
+            "foreignKeys": {
+                "combatant_effects_combatant_id_combatants_id_fk": {
+                    "name": "combatant_effects_combatant_id_combatants_id_fk",
+                    "tableFrom": "combatant_effects",
+                    "tableTo": "combatants",
+                    "columnsFrom": ["combatant_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {
+                "combatant_effects_combatant_id_effect_type_key": {
+                    "name": "combatant_effects_combatant_id_effect_type_key",
+                    "nullsNotDistinct": false,
+                    "columns": ["combatant_id", "effect_type"]
+                }
+            },
+            "policies": {},
+            "checkConstraints": {},
+            "isRLSEnabled": false
+        },
+        "public.combatant_statuses": {
+            "name": "combatant_statuses",
+            "schema": "",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "uuid",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "default": "gen_random_uuid()"
+                },
+                "combatant_id": {
+                    "name": "combatant_id",
+                    "type": "uuid",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "status_type": {
+                    "name": "status_type",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "source": {
+                    "name": "source",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "duration_rounds": {
+                    "name": "duration_rounds",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "effect_data": {
+                    "name": "effect_data",
+                    "type": "jsonb",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "'{}'::jsonb"
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "now()"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "now()"
+                }
+            },
+            "indexes": {},
+            "foreignKeys": {
+                "combatant_statuses_combatant_id_combatants_id_fk": {
+                    "name": "combatant_statuses_combatant_id_combatants_id_fk",
+                    "tableFrom": "combatant_statuses",
+                    "tableTo": "combatants",
+                    "columnsFrom": ["combatant_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {
+                "combatant_statuses_combatant_id_status_type_key": {
+                    "name": "combatant_statuses_combatant_id_status_type_key",
+                    "nullsNotDistinct": false,
+                    "columns": ["combatant_id", "status_type"]
+                }
+            },
+            "policies": {},
+            "checkConstraints": {},
+            "isRLSEnabled": false
+        },
+        "public.combatants": {
+            "name": "combatants",
+            "schema": "",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "uuid",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "default": "gen_random_uuid()"
+                },
+                "session_id": {
+                    "name": "session_id",
+                    "type": "uuid",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "type": {
+                    "name": "type",
+                    "type": "combatant_type",
+                    "typeSchema": "public",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "allegiance": {
+                    "name": "allegiance",
+                    "type": "combatant_allegiance",
+                    "typeSchema": "public",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "player_id": {
+                    "name": "player_id",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "discord_user_id": {
+                    "name": "discord_user_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "mob_definition_id": {
+                    "name": "mob_definition_id",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "name": {
+                    "name": "name",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "max_hp": {
+                    "name": "max_hp",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "current_hp": {
+                    "name": "current_hp",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "wounds": {
+                    "name": "wounds",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "wound_threshold": {
+                    "name": "wound_threshold",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "defense_count": {
+                    "name": "defense_count",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "creature_size": {
+                    "name": "creature_size",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "'medium'"
+                },
+                "last_hit_zone": {
+                    "name": "last_hit_zone",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "movement_speed": {
+                    "name": "movement_speed",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 8
+                },
+                "reload_remaining": {
+                    "name": "reload_remaining",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "initiative_base": {
+                    "name": "initiative_base",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "initiative_roll": {
+                    "name": "initiative_roll",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "is_active_turn": {
+                    "name": "is_active_turn",
+                    "type": "boolean",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": false
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "now()"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "now()"
+                }
+            },
+            "indexes": {},
+            "foreignKeys": {
+                "combatants_session_id_combat_sessions_id_fk": {
+                    "name": "combatants_session_id_combat_sessions_id_fk",
+                    "tableFrom": "combatants",
+                    "tableTo": "combat_sessions",
+                    "columnsFrom": ["session_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                },
+                "combatants_player_id_players_id_fk": {
+                    "name": "combatants_player_id_players_id_fk",
+                    "tableFrom": "combatants",
+                    "tableTo": "players",
+                    "columnsFrom": ["player_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                },
+                "combatants_mob_definition_id_mobs_id_fk": {
+                    "name": "combatants_mob_definition_id_mobs_id_fk",
+                    "tableFrom": "combatants",
+                    "tableTo": "mobs",
+                    "columnsFrom": ["mob_definition_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "policies": {},
+            "checkConstraints": {},
+            "isRLSEnabled": false
+        },
+        "public.items": {
+            "name": "items",
+            "schema": "",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "integer",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "identity": {
+                        "type": "always",
+                        "name": "items_id_seq",
+                        "schema": "public",
+                        "increment": "1",
+                        "startWith": "1",
+                        "minValue": "1",
+                        "maxValue": "2147483647",
+                        "cache": "1",
+                        "cycle": false
+                    }
+                },
+                "player_id": {
+                    "name": "player_id",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "name": {
+                    "name": "name",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "type": {
+                    "name": "type",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "effect": {
+                    "name": "effect",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "description": {
+                    "name": "description",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "quantity": {
+                    "name": "quantity",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 1
+                }
+            },
+            "indexes": {},
+            "foreignKeys": {
+                "items_player_id_players_id_fk": {
+                    "name": "items_player_id_players_id_fk",
+                    "tableFrom": "items",
+                    "tableTo": "players",
+                    "columnsFrom": ["player_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "policies": {},
+            "checkConstraints": {},
+            "isRLSEnabled": false
+        },
+        "public.mobs": {
+            "name": "mobs",
+            "schema": "",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "integer",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "identity": {
+                        "type": "always",
+                        "name": "mobs_id_seq",
+                        "schema": "public",
+                        "increment": "1",
+                        "startWith": "1",
+                        "minValue": "1",
+                        "maxValue": "2147483647",
+                        "cache": "1",
+                        "cycle": false
+                    }
+                },
+                "name": {
+                    "name": "name",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "description": {
+                    "name": "description",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "base_max_hp": {
+                    "name": "base_max_hp",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "base_initiative": {
+                    "name": "base_initiative",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "base_attack_value": {
+                    "name": "base_attack_value",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "base_parry_value": {
+                    "name": "base_parry_value",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "base_armor_soak": {
+                    "name": "base_armor_soak",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "base_damage_tp": {
+                    "name": "base_damage_tp",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "now()"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "now()"
+                }
+            },
+            "indexes": {},
+            "foreignKeys": {},
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {
+                "mobs_name_unique": {
+                    "name": "mobs_name_unique",
+                    "nullsNotDistinct": false,
+                    "columns": ["name"]
+                }
+            },
+            "policies": {},
+            "checkConstraints": {},
+            "isRLSEnabled": false
+        },
+        "public.player_action_modifications": {
+            "name": "player_action_modifications",
+            "schema": "",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "integer",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "identity": {
+                        "type": "always",
+                        "name": "player_action_modifications_id_seq",
+                        "schema": "public",
+                        "increment": "1",
+                        "startWith": "1",
+                        "minValue": "1",
+                        "maxValue": "2147483647",
+                        "cache": "1",
+                        "cycle": false
+                    }
+                },
+                "player_id": {
+                    "name": "player_id",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "action_modification_id": {
+                    "name": "action_modification_id",
+                    "type": "uuid",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "ftw": {
+                    "name": "ftw",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                }
+            },
+            "indexes": {},
+            "foreignKeys": {
+                "player_action_modifications_player_id_players_id_fk": {
+                    "name": "player_action_modifications_player_id_players_id_fk",
+                    "tableFrom": "player_action_modifications",
+                    "tableTo": "players",
+                    "columnsFrom": ["player_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                },
+                "player_action_modifications_action_modification_id_action_modifications_id_fk": {
+                    "name": "player_action_modifications_action_modification_id_action_modifications_id_fk",
+                    "tableFrom": "player_action_modifications",
+                    "tableTo": "action_modifications",
+                    "columnsFrom": ["action_modification_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "policies": {},
+            "checkConstraints": {},
+            "isRLSEnabled": false
+        },
+        "public.player_talents": {
+            "name": "player_talents",
+            "schema": "",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "integer",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "identity": {
+                        "type": "always",
+                        "name": "player_talents_id_seq",
+                        "schema": "public",
+                        "increment": "1",
+                        "startWith": "1",
+                        "minValue": "1",
+                        "maxValue": "2147483647",
+                        "cache": "1",
+                        "cycle": false
+                    }
+                },
+                "player_id": {
+                    "name": "player_id",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "talent_id": {
+                    "name": "talent_id",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "ftw": {
+                    "name": "ftw",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                }
+            },
+            "indexes": {},
+            "foreignKeys": {
+                "player_talents_player_id_players_id_fk": {
+                    "name": "player_talents_player_id_players_id_fk",
+                    "tableFrom": "player_talents",
+                    "tableTo": "players",
+                    "columnsFrom": ["player_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                },
+                "player_talents_talent_id_talents_id_fk": {
+                    "name": "player_talents_talent_id_talents_id_fk",
+                    "tableFrom": "player_talents",
+                    "tableTo": "talents",
+                    "columnsFrom": ["talent_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "policies": {},
+            "checkConstraints": {},
+            "isRLSEnabled": false
+        },
+        "public.players": {
+            "name": "players",
+            "schema": "",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "integer",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "identity": {
+                        "type": "always",
+                        "name": "players_id_seq",
+                        "schema": "public",
+                        "increment": "1",
+                        "startWith": "1",
+                        "minValue": "1",
+                        "maxValue": "2147483647",
+                        "cache": "1",
+                        "cycle": false
+                    }
+                },
+                "name": {
+                    "name": "name",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "discord_id": {
+                    "name": "discord_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "selected": {
+                    "name": "selected",
+                    "type": "selected_enum",
+                    "typeSchema": "public",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "'NO'"
+                },
+                "avatar": {
+                    "name": "avatar",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false
+                }
+            },
+            "indexes": {},
+            "foreignKeys": {},
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "policies": {},
+            "checkConstraints": {},
+            "isRLSEnabled": false
+        },
+        "public.rule_chunks": {
+            "name": "rule_chunks",
+            "schema": "",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "uuid",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "default": "gen_random_uuid()"
+                },
+                "chunk_id": {
+                    "name": "chunk_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "page_id": {
+                    "name": "page_id",
+                    "type": "uuid",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "version": {
+                    "name": "version",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "chunk_index": {
+                    "name": "chunk_index",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "title": {
+                    "name": "title",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "category": {
+                    "name": "category",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "resolved_category": {
+                    "name": "resolved_category",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "heading": {
+                    "name": "heading",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "chunk_text": {
+                    "name": "chunk_text",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "char_start": {
+                    "name": "char_start",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "char_end": {
+                    "name": "char_end",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "embedding": {
+                    "name": "embedding",
+                    "type": "vector(1536)",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "embedding_model": {
+                    "name": "embedding_model",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "embedded_at": {
+                    "name": "embedded_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "is_unresolved": {
+                    "name": "is_unresolved",
+                    "type": "boolean",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": false
+                },
+                "metadata": {
+                    "name": "metadata",
+                    "type": "jsonb",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "'{}'::jsonb"
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "now()"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "now()"
+                },
+                "is_active": {
+                    "name": "is_active",
+                    "type": "boolean",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": true
+                }
+            },
+            "indexes": {},
+            "foreignKeys": {
+                "rule_chunks_page_id_rule_pages_id_fk": {
+                    "name": "rule_chunks_page_id_rule_pages_id_fk",
+                    "tableFrom": "rule_chunks",
+                    "tableTo": "rule_pages",
+                    "columnsFrom": ["page_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {
+                "rule_chunks_chunk_id_unique": {
+                    "name": "rule_chunks_chunk_id_unique",
+                    "nullsNotDistinct": false,
+                    "columns": ["chunk_id"]
+                },
+                "rule_chunks_page_id_version_chunk_index_key": {
+                    "name": "rule_chunks_page_id_version_chunk_index_key",
+                    "nullsNotDistinct": false,
+                    "columns": ["page_id", "version", "chunk_index"]
+                }
+            },
+            "policies": {},
+            "checkConstraints": {},
+            "isRLSEnabled": false
+        },
+        "public.rule_pages": {
+            "name": "rule_pages",
+            "schema": "",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "uuid",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "default": "gen_random_uuid()"
+                },
+                "doc_id": {
+                    "name": "doc_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "source_item_id": {
+                    "name": "source_item_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "source_url": {
+                    "name": "source_url",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "url_hash": {
+                    "name": "url_hash",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "canonical_slug": {
+                    "name": "canonical_slug",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "title": {
+                    "name": "title",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "category": {
+                    "name": "category",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "resolved_category": {
+                    "name": "resolved_category",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "subcategory": {
+                    "name": "subcategory",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "page_state": {
+                    "name": "page_state",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "is_unresolved": {
+                    "name": "is_unresolved",
+                    "type": "boolean",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": false
+                },
+                "resolution_confidence": {
+                    "name": "resolution_confidence",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "normalized_content": {
+                    "name": "normalized_content",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "content_hash": {
+                    "name": "content_hash",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "parser_version": {
+                    "name": "parser_version",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "scraper_version": {
+                    "name": "scraper_version",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "source_snapshot_at": {
+                    "name": "source_snapshot_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "version": {
+                    "name": "version",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 1
+                },
+                "metadata": {
+                    "name": "metadata",
+                    "type": "jsonb",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "'{}'::jsonb"
+                },
+                "last_seen_at": {
+                    "name": "last_seen_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "now()"
+                },
+                "deleted_at": {
+                    "name": "deleted_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "now()"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "now()"
+                }
+            },
+            "indexes": {},
+            "foreignKeys": {},
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {
+                "rule_pages_doc_id_unique": {
+                    "name": "rule_pages_doc_id_unique",
+                    "nullsNotDistinct": false,
+                    "columns": ["doc_id"]
+                },
+                "rule_pages_source_url_unique": {
+                    "name": "rule_pages_source_url_unique",
+                    "nullsNotDistinct": false,
+                    "columns": ["source_url"]
+                },
+                "rule_pages_canonical_slug_unique": {
+                    "name": "rule_pages_canonical_slug_unique",
+                    "nullsNotDistinct": false,
+                    "columns": ["canonical_slug"]
+                }
+            },
+            "policies": {},
+            "checkConstraints": {},
+            "isRLSEnabled": false
+        },
+        "public.stats": {
+            "name": "stats",
+            "schema": "",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "integer",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "identity": {
+                        "type": "always",
+                        "name": "stats_id_seq",
+                        "schema": "public",
+                        "increment": "1",
+                        "startWith": "1",
+                        "minValue": "1",
+                        "maxValue": "2147483647",
+                        "cache": "1",
+                        "cycle": false
+                    }
+                },
+                "player_id": {
+                    "name": "player_id",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "mu": {
+                    "name": "mu",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "kl": {
+                    "name": "kl",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "in": {
+                    "name": "in",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "ch": {
+                    "name": "ch",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "ff": {
+                    "name": "ff",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "ge": {
+                    "name": "ge",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "ko": {
+                    "name": "ko",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "kk": {
+                    "name": "kk",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "le_max": {
+                    "name": "le_max",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "le_current": {
+                    "name": "le_current",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "wounds": {
+                    "name": "wounds",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "wound_threshold_modifier": {
+                    "name": "wound_threshold_modifier",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "pending_healing_bonus": {
+                    "name": "pending_healing_bonus",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "pain_suppression": {
+                    "name": "pain_suppression",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "pain_suppression_phases": {
+                    "name": "pain_suppression_phases",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "pain_modifier": {
+                    "name": "pain_modifier",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "stabilization_failures": {
+                    "name": "stabilization_failures",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "asp_max": {
+                    "name": "asp_max",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "asp_current": {
+                    "name": "asp_current",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "kap_max": {
+                    "name": "kap_max",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "kap_current": {
+                    "name": "kap_current",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "schicksalspunkte_max": {
+                    "name": "schicksalspunkte_max",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "schicksalspunkte_current": {
+                    "name": "schicksalspunkte_current",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "initiative": {
+                    "name": "initiative",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "ruestungsschutz": {
+                    "name": "ruestungsschutz",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "ausweichen": {
+                    "name": "ausweichen",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "attacke_basis": {
+                    "name": "attacke_basis",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "parade_basis": {
+                    "name": "parade_basis",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                }
+            },
+            "indexes": {},
+            "foreignKeys": {
+                "stats_player_id_players_id_fk": {
+                    "name": "stats_player_id_players_id_fk",
+                    "tableFrom": "stats",
+                    "tableTo": "players",
+                    "columnsFrom": ["player_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "policies": {},
+            "checkConstraints": {},
+            "isRLSEnabled": false
+        },
+        "public.talents": {
+            "name": "talents",
+            "schema": "",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "integer",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "identity": {
+                        "type": "always",
+                        "name": "talents_id_seq",
+                        "schema": "public",
+                        "increment": "1",
+                        "startWith": "1",
+                        "minValue": "1",
+                        "maxValue": "2147483647",
+                        "cache": "1",
+                        "cycle": false
+                    }
+                },
+                "name": {
+                    "name": "name",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "stat1": {
+                    "name": "stat1",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "stat2": {
+                    "name": "stat2",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "stat3": {
+                    "name": "stat3",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                }
+            },
+            "indexes": {},
+            "foreignKeys": {},
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {
+                "talents_name_unique": {
+                    "name": "talents_name_unique",
+                    "nullsNotDistinct": false,
+                    "columns": ["name"]
+                }
+            },
+            "policies": {},
+            "checkConstraints": {},
+            "isRLSEnabled": false
+        },
+        "public.weapons": {
+            "name": "weapons",
+            "schema": "",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "integer",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "identity": {
+                        "type": "always",
+                        "name": "weapons_id_seq",
+                        "schema": "public",
+                        "increment": "1",
+                        "startWith": "1",
+                        "minValue": "1",
+                        "maxValue": "2147483647",
+                        "cache": "1",
+                        "cycle": false
+                    }
+                },
+                "player_id": {
+                    "name": "player_id",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "name": {
+                    "name": "name",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "type": {
+                    "name": "type",
+                    "type": "weapon_type",
+                    "typeSchema": "public",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "tp": {
+                    "name": "tp",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "at": {
+                    "name": "at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "pa": {
+                    "name": "pa",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "range_close": {
+                    "name": "range_close",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "range_medium": {
+                    "name": "range_medium",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "range_far": {
+                    "name": "range_far",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "reload_actions": {
+                    "name": "reload_actions",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "is_two_handed": {
+                    "name": "is_two_handed",
+                    "type": "boolean",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": false
+                },
+                "is_equipped": {
+                    "name": "is_equipped",
+                    "type": "equipped_status",
+                    "typeSchema": "public",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "'N'"
+                },
+                "equipped_slot": {
+                    "name": "equipped_slot",
+                    "type": "equipped_slot",
+                    "typeSchema": "public",
+                    "primaryKey": false,
+                    "notNull": false
+                }
+            },
+            "indexes": {},
+            "foreignKeys": {
+                "weapons_player_id_players_id_fk": {
+                    "name": "weapons_player_id_players_id_fk",
+                    "tableFrom": "weapons",
+                    "tableTo": "players",
+                    "columnsFrom": ["player_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "policies": {},
+            "checkConstraints": {},
+            "isRLSEnabled": false
+        },
+        "public.wound_treatments": {
+            "name": "wound_treatments",
+            "schema": "",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "uuid",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "default": "gen_random_uuid()"
+                },
+                "target_player_id": {
+                    "name": "target_player_id",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "healer_player_id": {
+                    "name": "healer_player_id",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "combatant_id": {
+                    "name": "combatant_id",
+                    "type": "uuid",
+                    "primaryKey": false,
+                    "notNull": false
+                },
+                "treatment_type": {
+                    "name": "treatment_type",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "success": {
+                    "name": "success",
+                    "type": "boolean",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "critical_success": {
+                    "name": "critical_success",
+                    "type": "boolean",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": false
+                },
+                "fumble": {
+                    "name": "fumble",
+                    "type": "boolean",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": false
+                },
+                "quality_level": {
+                    "name": "quality_level",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "life_points_changed": {
+                    "name": "life_points_changed",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "wounds_healed": {
+                    "name": "wounds_healed",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": 0
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "now()"
+                }
+            },
+            "indexes": {},
+            "foreignKeys": {
+                "wound_treatments_target_player_id_players_id_fk": {
+                    "name": "wound_treatments_target_player_id_players_id_fk",
+                    "tableFrom": "wound_treatments",
+                    "tableTo": "players",
+                    "columnsFrom": ["target_player_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                },
+                "wound_treatments_healer_player_id_players_id_fk": {
+                    "name": "wound_treatments_healer_player_id_players_id_fk",
+                    "tableFrom": "wound_treatments",
+                    "tableTo": "players",
+                    "columnsFrom": ["healer_player_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                },
+                "wound_treatments_combatant_id_combatants_id_fk": {
+                    "name": "wound_treatments_combatant_id_combatants_id_fk",
+                    "tableFrom": "wound_treatments",
+                    "tableTo": "combatants",
+                    "columnsFrom": ["combatant_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "policies": {},
+            "checkConstraints": {},
+            "isRLSEnabled": false
+        }
+    },
+    "enums": {
+        "public.action_type": {
+            "name": "action_type",
+            "schema": "public",
+            "values": ["MELEE", "RANGED", "MAGIC"]
+        },
+        "public.combat_state": {
+            "name": "combat_state",
+            "schema": "public",
+            "values": ["SETUP", "RUNNING", "PAUSED", "ENDED"]
+        },
+        "public.combatant_allegiance": {
+            "name": "combatant_allegiance",
+            "schema": "public",
+            "values": ["PLAYER_SIDE", "HOSTILE"]
+        },
+        "public.combatant_type": {
+            "name": "combatant_type",
+            "schema": "public",
+            "values": ["PLAYER", "NPC"]
+        },
+        "public.equipped_slot": {
+            "name": "equipped_slot",
+            "schema": "public",
+            "values": ["ADAPTIVE", "OFFENSE", "DEFENSE"]
+        },
+        "public.equipped_status": {
+            "name": "equipped_status",
+            "schema": "public",
+            "values": ["Y", "N"]
+        },
+        "public.selected_enum": {
+            "name": "selected_enum",
+            "schema": "public",
+            "values": ["NO", "YES"]
+        },
+        "public.weapon_type": {
+            "name": "weapon_type",
+            "schema": "public",
+            "values": ["MELEE", "RANGED"]
+        }
+    },
+    "schemas": {},
+    "sequences": {},
+    "roles": {},
+    "policies": {},
+    "views": {},
+    "_meta": {
+        "columns": {},
+        "schemas": {},
+        "tables": {}
+    }
+}

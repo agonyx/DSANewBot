@@ -5,8 +5,9 @@
 
 import { and, eq } from 'drizzle-orm';
 import { db } from '../index';
-import { combatSessions, combatants } from '../schema';
+import { combatSessions, combatants, stats } from '../schema';
 import { httpError } from './errors';
+import { calculateWoundThreshold } from '../../utils/woundUtils';
 
 export interface CreateCombatantInput {
     sessionId: string;
@@ -18,6 +19,8 @@ export interface CreateCombatantInput {
     name: string;
     maxHp: number;
     currentHp: number;
+    wounds?: number;
+    woundThreshold?: number | null;
     initiativeBase?: number;
 }
 
@@ -33,6 +36,8 @@ export async function createCombatant(input: CreateCombatantInput) {
         name,
         maxHp,
         currentHp,
+        wounds: requestedWounds,
+        woundThreshold: requestedWoundThreshold,
         initiativeBase,
     } = input;
 
@@ -51,10 +56,24 @@ export async function createCombatant(input: CreateCombatantInput) {
         const [existing] = await db
             .select({ id: combatants.id })
             .from(combatants)
-            .where(
-                and(eq(combatants.session_id, sessionId), eq(combatants.discord_user_id, discordUserId))
-            );
+            .where(and(eq(combatants.session_id, sessionId), eq(combatants.discord_user_id, discordUserId)));
         if (existing) throw httpError(409, 'Discord user already has a combatant in this session');
+    }
+
+    let wounds = requestedWounds ?? 0;
+    let woundThreshold = requestedWoundThreshold ?? null;
+    let effectiveInitiativeBase = initiativeBase ?? 0;
+    if (type === 'PLAYER' && playerId) {
+        const [statRow] = await db.select().from(stats).where(eq(stats.player_id, playerId)).limit(1);
+        if (!statRow) throw httpError(400, 'Player combatant has no stats');
+        wounds = requestedWounds ?? statRow.wounds;
+        woundThreshold =
+            requestedWoundThreshold ?? calculateWoundThreshold(statRow.ko, statRow.wound_threshold_modifier);
+        effectiveInitiativeBase = Math.max(0, (initiativeBase ?? statRow.initiative) - statRow.belastung);
+    }
+    if (!Number.isInteger(wounds) || wounds < 0) throw httpError(400, 'wounds must be a non-negative integer');
+    if (woundThreshold !== null && (!Number.isInteger(woundThreshold) || woundThreshold < 0)) {
+        throw httpError(400, 'woundThreshold must be a non-negative integer or null');
     }
 
     const [combatant] = await db
@@ -69,7 +88,9 @@ export async function createCombatant(input: CreateCombatantInput) {
             name,
             max_hp: maxHp,
             current_hp: currentHp,
-            initiative_base: initiativeBase ?? 0,
+            wounds,
+            wound_threshold: woundThreshold && woundThreshold > 0 ? woundThreshold : null,
+            initiative_base: effectiveInitiativeBase,
         })
         .returning();
 

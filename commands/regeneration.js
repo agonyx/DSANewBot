@@ -19,7 +19,17 @@ module.exports = {
         const ctx = { discordId: interaction.user.id };
 
         try {
-            const { characterName, alreadyFull, results } = await regenerate(ctx, {
+            const {
+                characterName,
+                alreadyFull,
+                results,
+                woundsBefore,
+                woundsHealed,
+                woundsAfter,
+                painSuppressionExpired,
+                recoveredConditions,
+                regenerationPenalty,
+            } = await regenerate(ctx, {
                 targetDiscordId: targetUser?.id,
             });
 
@@ -33,7 +43,10 @@ module.exports = {
                 .setColor(0x2ecc71)
                 .setTitle(`🌙 Regenerationsphase — ${characterName}`)
                 .setDescription(`After a period of rest, **${characterName}** recovers energy.`)
-                .setFooter({ text: `Regeneration by ${interaction.user.username}`, iconURL: interaction.user.avatarURL() })
+                .setFooter({
+                    text: `Regeneration by ${interaction.user.username}`,
+                    iconURL: interaction.user.avatarURL(),
+                })
                 .setTimestamp();
 
             for (const r of results) {
@@ -45,6 +58,25 @@ module.exports = {
                 embed.addFields({
                     name: `${r.emoji} ${r.label}`,
                     value: `🎲 Roll: **${r.roll}**${modifierDisplay}\n${r.oldValue} → **${r.newValue}** / ${r.maxValue}\n${resourceBar}`,
+                });
+            }
+
+            if (woundsHealed > 0) {
+                embed.addFields({
+                    name: '🩸 Natural wound healing',
+                    value: `${woundsBefore} → **${woundsAfter}** wound(s)`,
+                });
+            }
+            if (painSuppressionExpired) {
+                embed.addFields({ name: '⚡ Pain treatment', value: 'Temporary pain suppression has ended.' });
+            }
+            if (recoveredConditions.length > 0) {
+                embed.addFields({ name: '✅ Rest recovery', value: recoveredConditions.join(', ') });
+            }
+            if (regenerationPenalty < 0) {
+                embed.addFields({
+                    name: '🥱 Exhaustion',
+                    value: `${regenerationPenalty} to LeP, AsP, and KaP regeneration rolls.`,
                 });
             }
 

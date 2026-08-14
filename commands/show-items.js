@@ -3,6 +3,7 @@ const { listItems } = require('../services/inventory');
 const { getSelectedPlayer } = require('../services/characters');
 const { readAvatar } = require('../utils/avatarStorage');
 const { createLogger } = require('../utils/logger');
+const { formatCurrency } = require('../utils/economyUtils');
 const log = createLogger('show-items');
 
 const TYPE_EMOJIS = {
@@ -11,6 +12,9 @@ const TYPE_EMOJIS = {
     SCROLL: '📜',
     WEAPON: '⚔️',
     ARMOR: '🛡️',
+    CLOTHING: '👕',
+    GEAR: '🎒',
+    CONSUMABLE: '🧪',
     VALUABLE: '💎',
     MISC: '📦',
 };
@@ -58,7 +62,7 @@ module.exports = {
                 const emoji = TYPE_EMOJIS[type] || '📦';
                 const value = typeItems
                     .map(item => {
-                        let itemText = `**${item.name}**`;
+                        let itemText = `**#${item.id} ${item.name}**`;
                         if (item.quantity && item.quantity > 1) {
                             itemText += ` x${item.quantity}`;
                         }
@@ -66,6 +70,10 @@ module.exports = {
                             itemText += `\n  └ *${item.effect}*`;
                         } else if (item.description) {
                             itemText += `\n  └ *${item.description.substring(0, 50)}${item.description.length > 50 ? '...' : ''}*`;
+                        }
+                        itemText += `\n  └ ${(item.weight_grams / 1000).toFixed(1)} Stein · ${formatCurrency(item.price_kreuzer)}`;
+                        if (item.is_equipped) {
+                            itemText += ` · Equipped: ${item.equipped_slot} · RS ${item.armor_rs} / BE ${item.armor_be}`;
                         }
                         return itemText;
                     })

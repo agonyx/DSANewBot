@@ -6,7 +6,7 @@
 
 import { and, eq } from 'drizzle-orm';
 import { db } from '../index';
-import { players, stats, talents, playerTalents } from '../schema';
+import { players, stats, talents, playerTalents, wallets } from '../schema';
 import { httpError } from './errors';
 
 export interface CreatedPlayer {
@@ -19,21 +19,19 @@ export async function createPlayer(input: { name: string; discordId: string }): 
     const { name, discordId } = input;
     if (!name || !discordId) throw httpError(400, 'name and discordId are required');
 
-    return db.transaction(async (tx) => {
-        const [player] = await tx
-            .insert(players)
-            .values({ name, discord_id: discordId, selected: 'NO' })
-            .returning();
+    return db.transaction(async tx => {
+        const [player] = await tx.insert(players).values({ name, discord_id: discordId, selected: 'NO' }).returning();
         if (!player) throw httpError(500, 'Failed to create player');
 
         const [statsRow] = await tx.insert(stats).values({ player_id: player.id }).returning();
         if (!statsRow) throw httpError(500, 'Failed to create stats');
+        await tx.insert(wallets).values({ player_id: player.id });
 
         const allTalents = await tx.select({ id: talents.id }).from(talents);
         if (allTalents.length > 0) {
             await tx
                 .insert(playerTalents)
-                .values(allTalents.map((t) => ({ player_id: player.id, talent_id: t.id, ftw: 0 })));
+                .values(allTalents.map(t => ({ player_id: player.id, talent_id: t.id, ftw: 0 })));
         }
 
         return { player, stats: statsRow };
@@ -55,14 +53,11 @@ export async function deletePlayer(playerId: number): Promise<{ success: true; m
 }
 
 /** Set the active (selected) character for a Discord user, deselecting the previous one. */
-export async function setSelectedPlayer(input: {
-    playerId: number;
-    discordId: string;
-}): Promise<{ message: string }> {
+export async function setSelectedPlayer(input: { playerId: number; discordId: string }): Promise<{ message: string }> {
     const { playerId, discordId } = input;
     if (!playerId || !discordId) throw httpError(400, 'playerId and discordId are required');
 
-    return db.transaction(async (tx) => {
+    return db.transaction(async tx => {
         const [previous] = await tx
             .select({ id: players.id })
             .from(players)

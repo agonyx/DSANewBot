@@ -3,6 +3,12 @@ const { db } = require('../db');
 const { eq, and, inArray } = require('drizzle-orm');
 const { players, stats, weapons, playerActionModifications, actionModifications } = require('../db/schema');
 const { resolveAttack, parseAndRollDamage, applySoak, resolveDefense } = require('../utils/combatUtils');
+const {
+    applyWoundDamage,
+    calculateWoundPenalty,
+    calculateWoundThreshold,
+    isIncapacitatedByWounds,
+} = require('../utils/woundUtils');
 const { createLogger } = require('../utils/logger');
 const log = createLogger('attack');
 
@@ -27,7 +33,9 @@ async function getPlayerData(discordId) {
         }
     } catch (error) {
         if (error.message?.includes('Incomplete')) throw error;
-        throw new Error(`No character selected for the user with ID ${discordId}. Use \`/choose-character\`.`, { cause: error });
+        throw new Error(`No character selected for the user with ID ${discordId}. Use \`/choose-character\`.`, {
+            cause: error,
+        });
     }
 
     const offensiveWeapon = weaponsRows.find(
@@ -48,6 +56,8 @@ async function getPlayerData(discordId) {
         statsId: statsRow.id,
         currentHP: statsRow.le_current,
         maxHP: statsRow.le_max,
+        wounds: statsRow.wounds,
+        woundThreshold: calculateWoundThreshold(statsRow.ko, statsRow.wound_threshold_modifier),
         effectiveStats: {
             currentAT: at,
             currentPA: pa,
@@ -130,6 +140,12 @@ module.exports = {
             const attacker = await getPlayerData(attackerUser.id);
             const target = await getPlayerData(targetUser.id);
 
+            if (isIncapacitatedByWounds(attacker.wounds)) {
+                return interaction.editReply(
+                    `❌ ${attacker.name} is incapacitated by ${attacker.wounds} wounds and cannot attack.`
+                );
+            }
+
             if (target.currentHP <= 0) {
                 return interaction.editReply(`❌ ${target.name} is already defeated!`);
             }
@@ -144,8 +160,10 @@ module.exports = {
                 maneuver = maneuverData || null;
             }
 
-            let atValue = attacker.effectiveStats.currentAT;
-            let paValue = target.effectiveStats.currentPA;
+            const attackerWoundPenalty = calculateWoundPenalty(attacker.wounds);
+            const targetWoundPenalty = calculateWoundPenalty(target.wounds);
+            let atValue = Math.max(0, attacker.effectiveStats.currentAT - attackerWoundPenalty);
+            let paValue = Math.max(0, target.effectiveStats.currentPA - targetWoundPenalty);
             let damageBonus = 0;
             let description = `**${attacker.name}** attacks **${target.name}**!\n\n`;
 
@@ -178,7 +196,7 @@ module.exports = {
                     break;
             }
 
-            if (hitConnected) {
+            if (hitConnected && !isIncapacitatedByWounds(target.wounds)) {
                 const defenseResult = resolveDefense(paValue);
                 description += `\n🛡️ **${target.name}'s Parry:** ${defenseResult.roll} / ${paValue}`;
                 if (defenseResult.success) {
@@ -198,16 +216,26 @@ module.exports = {
 
                 description += `\n💥 **Damage:** ${totalDamage} TP - ${target.effectiveStats.currentRS} RS = **${finalDamage} Damage!**`;
 
-                const newHP = Math.max(0, target.currentHP - finalDamage);
+                const newHP = target.currentHP - finalDamage;
+                const woundResult = applyWoundDamage(target.wounds, finalDamage, target.woundThreshold);
 
                 if (newHP !== target.currentHP) {
                     try {
-                        await db.update(stats).set({ le_current: newHP }).where(eq(stats.id, target.statsId));
+                        await db
+                            .update(stats)
+                            .set({ le_current: newHP, wounds: woundResult.totalWounds })
+                            .where(eq(stats.id, target.statsId));
                     } catch (updateError) {
                         log.error({ error: updateError }, 'Failed to update target HP');
                     }
 
                     description += `\n❤️ **${target.name}'s HP:** ${newHP} / ${target.maxHP}`;
+                    if (woundResult.woundsInflicted > 0) {
+                        description += `\n🩸 **Wounds:** +${woundResult.woundsInflicted} (${woundResult.totalWounds} total; threshold ${woundResult.woundThreshold})`;
+                        if (isIncapacitatedByWounds(woundResult.totalWounds)) {
+                            description += ' — **incapacitated**';
+                        }
+                    }
                     if (newHP <= 0) {
                         description += `\n\n**${target.name} has been defeated!**`;
                     }

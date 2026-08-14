@@ -80,12 +80,14 @@ module.exports = {
             await db.insert(items).values([
                 {
                     name: 'Health Potion',
+                    type: 'POTION',
                     description: 'Restores 1d6+4 health.',
                     quantity: 3,
                     player_id: player.id,
                 },
                 {
                     name: 'Lockpicks',
+                    type: 'MISC',
                     description: 'A set of lockpicks.',
                     quantity: 1,
                     player_id: player.id,

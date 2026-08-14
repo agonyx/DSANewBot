@@ -155,6 +155,16 @@ async function handleCombatSelectMenu(interaction) {
         const actorId = parts[2];
         await turnHandler.handleCombatSkillManeuverSelect(interaction, sessionId, actorId);
     }
+    // NPC maneuver selection
+    else if (customId.startsWith('npc_skill_pick_')) {
+        const parts = customId.split('_');
+        await npcHandler.handleDmNpcSkillSelect(interaction, parts[3], parts[4]);
+    }
+    // NPC maneuver target selection
+    else if (customId.startsWith('npc_skill_target_')) {
+        const parts = customId.split('_');
+        await npcHandler.handleDmNpcSkillTargetSelect(interaction, parts[3], parts[4]);
+    }
     // NPC target selection
     else if (customId.startsWith('cts_npc_')) {
         const parts = customId.split('_');

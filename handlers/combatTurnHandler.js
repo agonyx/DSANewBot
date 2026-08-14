@@ -30,7 +30,7 @@ const {
     weapons,
     mobs,
 } = require('../db/schema');
-const { sessionToMemory } = require('../utils/transforms');
+const { combatantToMemory, sessionToMemory } = require('../utils/transforms');
 const { createLogger } = require('../utils/logger');
 const { resolveAttack, parseAndRollDamage, applySoak, resolveDefense, rollDice } = require('../utils/combatUtils');
 const {
@@ -42,7 +42,14 @@ const {
 } = require('../utils/conditionUtils');
 
 const log = createLogger('combat-turn');
-const { resolveAttackAction, advanceTurn, endCombatSession, parkCombat, resumeCombat, getCombatSession } = require('../services/combat');
+const {
+    resolveAttackAction,
+    advanceTurn,
+    endCombatSession,
+    parkCombat,
+    resumeCombat,
+    getCombatSession,
+} = require('../services/combat');
 
 /**
  * Helper to get session data from memory or load from DB if missing.
@@ -266,7 +273,7 @@ async function handleCombatEndTurnInteraction(interaction, sessionId, actorId) {
 /**
  * Resolves a combat action (attack with or without maneuver).
  */
-async function resolveCombatAction(client, channelId, sessionId, actorId, targetId, maneuverId) {
+async function resolveCombatAction(client, channelId, sessionId, actorId, targetId, maneuverId, options = {}) {
     const sessionData = client.activeCombats.get(channelId);
     if (!sessionData) return;
 
@@ -274,39 +281,42 @@ async function resolveCombatAction(client, channelId, sessionId, actorId, target
     const target = sessionData.combatants.find(c => c.id === targetId);
     if (!attacker || !target) return;
 
-    // Preserve the in-memory parry (defend) bonus until effects have a persisted home.
-    const targetPaBonus = Array.isArray(target.effects)
-        ? target.effects.filter(e => e.type === 'defend').reduce((sum, e) => sum + (e.bonus || 0), 0)
-        : 0;
-
     let result;
     try {
         // Delegates to the transactional, DB-source-of-truth service. The service
-        // loads effective AT/PA/RS/TP, applies maneuver mods + the parry bonus,
+        // loads effective AT/PA/RS/TP, applies persisted effects and maneuver mods,
         // resolves attack/defense/soak, and mutates combatant HP in one transaction.
         result = await resolveAttackAction(
-            { discordId: '' },
+            { discordId: options.callerDiscordId },
             {
                 sessionId,
                 attackerId: actorId,
                 targetId,
                 maneuverId: maneuverId && maneuverId !== 'null' ? maneuverId : null,
-                targetPaBonus,
+                attackKind: options.attackKind,
+                hitZone: options.hitZone,
+                distance: options.distance,
+                coverPenalty: options.coverPenalty,
             }
         );
     } catch (error) {
         log.error({ error: error.message, sessionId, actorId, targetId }, 'resolveAttackAction failed');
-        return;
+        throw error;
     }
 
     // Sync the in-memory mirror (display cache) from the service result.
     attacker.currentHP = result.attackerHpAfter;
+    attacker.wounds = result.attackerWoundsAfter;
     target.currentHP = result.targetHpAfter;
+    target.wounds = result.targetWoundsAfter;
+    target.defenseCount = result.defenseCountAfter;
+    target.lastHitZone = result.hitZone;
+    attacker.reloadRemaining = result.attackerReloadRemaining;
     if (!Array.isArray(sessionData.combatLog)) sessionData.combatLog = [];
     sessionData.combatLog.push(result.logMessage);
     if (sessionData.combatLog.length > 20) sessionData.combatLog = sessionData.combatLog.slice(-20);
 
-    await nextTurn(client, channelId);
+    if (options.advanceTurn !== false) await nextTurn(client, channelId);
 }
 
 /**
@@ -353,7 +363,8 @@ async function handleCombatTargetSelectAttack(interaction, sessionId, actorIdFro
             sessionId,
             actorId,
             finalTargetId,
-            maneuverId
+            maneuverId,
+            { callerDiscordId: interaction.user.id }
         );
 
         await interaction.deleteReply().catch(err => {
@@ -632,11 +643,7 @@ async function getEffectiveCombatStats(combatant) {
 
     if (combatant.type === 'PLAYER') {
         try {
-            const [player] = await db
-                .select()
-                .from(players)
-                .where(eq(players.id, combatant.playerId))
-                .limit(1);
+            const [player] = await db.select().from(players).where(eq(players.id, combatant.playerId)).limit(1);
 
             if (!player) {
                 throw new Error(`Failed to fetch player data for ID ${combatant.playerId}`);
@@ -667,10 +674,7 @@ async function getEffectiveCombatStats(combatant) {
 
             if (combatant.effects && Array.isArray(combatant.effects)) {
                 for (const effect of combatant.effects) {
-                    if (effect.type === 'defend') {
-                        pa += effect.bonus;
-                        log.debug({ bonus: effect.bonus, playerName: player.name, newPA: pa }, 'Applied defend bonus');
-                    }
+                    pa += effect.pa_modifier || 0;
                 }
             }
 
@@ -682,11 +686,7 @@ async function getEffectiveCombatStats(combatant) {
         }
     } else if (combatant.type === 'NPC') {
         try {
-            const [mob] = await db
-                .select()
-                .from(mobs)
-                .where(eq(mobs.id, combatant.mobDefinitionId))
-                .limit(1);
+            const [mob] = await db.select().from(mobs).where(eq(mobs.id, combatant.mobDefinitionId)).limit(1);
 
             if (!mob) {
                 throw new Error(`Mob definition not found for ID ${combatant.mobDefinitionId}`);
@@ -695,10 +695,7 @@ async function getEffectiveCombatStats(combatant) {
             let pa = mob.base_parry_value;
             if (combatant.effects && Array.isArray(combatant.effects)) {
                 for (const effect of combatant.effects) {
-                    if (effect.type === 'defend') {
-                        pa += effect.bonus;
-                        log.debug({ bonus: effect.bonus, mobName: mob.name, newPA: pa }, 'Applied defend bonus to NPC');
-                    }
+                    pa += effect.pa_modifier || 0;
                 }
             }
 
@@ -761,20 +758,12 @@ async function nextTurn(client, channelId) {
 
     // Sync the in-memory mirror (display cache) from the service result.
     sessionData.state = result.session.state;
-    sessionData.currentTurnIndex = result.ended ? -1 : result.session.current_turn_index ?? -1;
+    sessionData.currentTurnIndex = result.ended ? -1 : (result.session.current_turn_index ?? -1);
     sessionData.currentRound = result.session.current_round ?? sessionData.currentRound ?? 1;
     sessionData.combatLog = Array.isArray(result.session.combat_log)
         ? result.session.combat_log.slice(-20)
         : sessionData.combatLog || [];
-
-    // Clear temporary in-memory effects on the new active combatant (effects aren't persisted).
-    if (!result.ended && sessionData.currentTurnIndex >= 0) {
-        const activeId = sessionData.turnOrder[sessionData.currentTurnIndex];
-        const activeCombatant = sessionData.combatants.find(c => c.id === activeId);
-        if (activeCombatant && Array.isArray(activeCombatant.effects)) {
-            activeCombatant.effects = activeCombatant.effects.filter(eff => !eff.isTemporary);
-        }
-    }
+    sessionData.combatants = result.combatants.map(combatantToMemory);
 
     await updateCombatDisplay(client, channelId);
 }
@@ -845,6 +834,7 @@ function buildActiveActorSpotlight(activeCombatant) {
     const typeIcon = activeCombatant.type === 'PLAYER' ? '👤' : '👹';
     const hpBar = createHealthBar(activeCombatant.currentHP, activeCombatant.maxHP, 8);
     const hpStatus = activeCombatant.currentHP <= 0 ? ' ⚠️ DOWN' : '';
+    const woundDisplay = activeCombatant.wounds > 0 ? `\n🩸 Wounds ${activeCombatant.wounds}` : '';
 
     // Pain level display
     const painLevel =
@@ -871,10 +861,20 @@ function buildActiveActorSpotlight(activeCombatant) {
         statusDisplay = '\n' + statusLines.join(' | ');
     }
 
+    let persistentEffectDisplay = '';
+    if (Array.isArray(activeCombatant.effects) && activeCombatant.effects.length > 0) {
+        const effectLines = activeCombatant.effects
+            .filter(effect => effect.effect_type)
+            .map(effect => `✨ ${effect.effect_type}${effect.duration_rounds ? ` (${effect.duration_rounds}R)` : ''}`);
+        if (effectLines.length > 0) persistentEffectDisplay = '\n' + effectLines.join(' | ');
+    }
+    const reloadDisplay = activeCombatant.reloadRemaining > 0 ? `\n🏹 Reload ${activeCombatant.reloadRemaining}` : '';
+    const defenseDisplay = activeCombatant.defenseCount > 0 ? `\n🛡️ Defenses ${activeCombatant.defenseCount}` : '';
+
     const value = [
         `**${typeIcon} ${truncateName(activeCombatant.name)}**`,
         `${side} • INI ${activeCombatant.initiativeRoll}`,
-        `${hpBar}${hpStatus}${painDisplay}${conditionDisplay}${statusDisplay}`,
+        `${hpBar}${hpStatus}${woundDisplay}${painDisplay}${conditionDisplay}${statusDisplay}${persistentEffectDisplay}${reloadDisplay}${defenseDisplay}`,
     ].join('\n');
 
     return {
@@ -1023,6 +1023,7 @@ function createCombatEmbed(session) {
         // Pain level indicator (derived from HP thresholds)
         const painLevel = c.maxHP > 0 ? calculatePainLevel(c.currentHP, c.maxHP) : 0;
         const painIndicator = painLevel > 0 ? ` P${painLevel}` : '';
+        const woundIndicator = c.wounds > 0 ? ` W${c.wounds}` : '';
 
         // Condition/status indicators (if loaded on combatant)
         let effectIndicators = '';
@@ -1040,8 +1041,13 @@ function createCombatEmbed(session) {
             });
             effectIndicators += ' ' + statusAbbrevs.join(',');
         }
+        if (Array.isArray(c.effects) && c.effects.some(effect => effect.effect_type)) {
+            effectIndicators += ` Fx${c.effects.filter(effect => effect.effect_type).length}`;
+        }
+        if (c.reloadRemaining > 0) effectIndicators += ` R${c.reloadRemaining}`;
+        if (c.defenseCount > 0) effectIndicators += ` D${c.defenseCount}`;
 
-        return `${turnIndicator}${name} [INI ${initiative}] HP ${hpDisplay} (${hpPercent}%)${painIndicator}${effectIndicators}${status}`;
+        return `${turnIndicator}${name} [INI ${initiative}] HP ${hpDisplay} (${hpPercent}%)${woundIndicator}${painIndicator}${effectIndicators}${status}`;
     };
 
     /**

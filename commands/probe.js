@@ -74,7 +74,18 @@ module.exports = {
 
 /** Pure renderer: turns a ProbeResult into the Discord embed (presentation only). */
 function buildProbeEmbed(result, user) {
-    const { characterName, talent, baseFtw, modifier, checkResults, remainingFtw, success, qs } = result;
+    const {
+        characterName,
+        talent,
+        baseFtw,
+        modifier,
+        woundPenalty,
+        conditionModifier,
+        checkResults,
+        remainingFtw,
+        success,
+        qs,
+    } = result;
 
     return new EmbedBuilder()
         .setColor(success ? 0x00ff00 : 0xff4444)
@@ -107,7 +118,19 @@ function buildProbeEmbed(result, user) {
                 name: 'QS',
                 value: `\`${qs}\``,
                 inline: true,
-            }
+            },
+            ...(woundPenalty > 0
+                ? [{ name: 'Wundabzug', value: `\`-${woundPenalty}\` auf jede Eigenschaft`, inline: true }]
+                : []),
+            ...(conditionModifier !== 0
+                ? [
+                      {
+                          name: 'Kampfzustände',
+                          value: `\`${conditionModifier > 0 ? '+' : ''}${conditionModifier}\` auf jede Eigenschaft`,
+                          inline: true,
+                      },
+                  ]
+                : [])
         )
         .setFooter({
             text: `${characterName} • ${user.username}`,

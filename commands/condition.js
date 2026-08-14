@@ -1,7 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { db } = require('../db');
-const { eq, and } = require('drizzle-orm');
-const { combatantConditions } = require('../db/schema');
+const { applyCondition, listConditions, removeCondition, resistCondition } = require('../services/combatEffects');
 const { createLogger } = require('../utils/logger');
 const {
     CONDITION_TYPES,
@@ -87,18 +85,8 @@ function buildConditionEmbed(characterName, conditions, user) {
  * @param {string} combatantId
  * @returns {Promise<Array>}
  */
-async function fetchConditions(combatantId) {
-    return db
-        .select({
-            condition_type: combatantConditions.condition_type,
-            level: combatantConditions.level,
-            source: combatantConditions.source,
-            duration_type: combatantConditions.duration_type,
-            duration_remaining: combatantConditions.duration_remaining,
-        })
-        .from(combatantConditions)
-        .where(eq(combatantConditions.combatant_id, combatantId))
-        .orderBy(combatantConditions.condition_type);
+async function fetchConditions(ctx, combatantId) {
+    return listConditions(ctx, combatantId);
 }
 
 // ---------------------------------------------------------------------------
@@ -116,32 +104,20 @@ async function handleAdd(interaction) {
     const { combatant, error: findError } = findCombatant(interaction, targetUser.id);
     if (findError) return interaction.editReply({ content: findError });
 
-    await db
-        .insert(combatantConditions)
-        .values({
-            combatant_id: combatant.id,
-            condition_type: conditionType,
-            level,
-            source,
-            duration_type: durationType,
-            duration_remaining: durationRemaining,
-            updated_at: new Date(),
-        })
-        .onConflictDoUpdate({
-            target: [combatantConditions.combatant_id, combatantConditions.condition_type],
-            set: {
-                level,
-                source,
-                duration_type: durationType,
-                duration_remaining: durationRemaining,
-                updated_at: new Date(),
-            },
-        });
+    const ctx = { discordId: interaction.user.id };
+    await applyCondition(ctx, {
+        combatantId: combatant.id,
+        conditionType,
+        level,
+        source,
+        durationType,
+        durationRemaining,
+    });
 
     const label = CONDITION_LABELS[conditionType] || conditionType;
     log.info({ combatantId: combatant.id, conditionType, level }, `Condition added: ${label} ${level}`);
 
-    const conditions = await fetchConditions(combatant.id);
+    const conditions = await fetchConditions(ctx, combatant.id);
 
     // Sync in-memory combatant so combat display reflects the change
     combatant.conditions = conditions;
@@ -161,28 +137,13 @@ async function handleRemove(interaction) {
     const { combatant, error: findError } = findCombatant(interaction, targetUser.id);
     if (findError) return interaction.editReply({ content: findError });
 
-    const deleted = await db
-        .delete(combatantConditions)
-        .where(
-            and(
-                eq(combatantConditions.combatant_id, combatant.id),
-                eq(combatantConditions.condition_type, conditionType)
-            )
-        )
-        .returning({ id: combatantConditions.id });
-    const count = deleted.length;
-
     const label = CONDITION_LABELS[conditionType] || conditionType;
-
-    if (count === 0) {
-        return interaction.editReply({
-            content: `ℹ️ **${combatant.name || targetUser.username}** hatte keinen Zustand **${label}**.`,
-        });
-    }
+    const ctx = { discordId: interaction.user.id };
+    await removeCondition(ctx, { combatantId: combatant.id, conditionType });
 
     log.info({ combatantId: combatant.id, conditionType }, `Condition removed: ${label}`);
 
-    const conditions = await fetchConditions(combatant.id);
+    const conditions = await fetchConditions(ctx, combatant.id);
 
     // Sync in-memory combatant so combat display reflects the change
     combatant.conditions = conditions;
@@ -200,11 +161,27 @@ async function handleList(interaction) {
     const { combatant, error: findError } = findCombatant(interaction, targetUser.id);
     if (findError) return interaction.editReply({ content: findError });
 
-    const conditions = await fetchConditions(combatant.id);
+    const conditions = await fetchConditions({ discordId: interaction.user.id }, combatant.id);
     const characterName = combatant.name || targetUser.username;
     const embed = buildConditionEmbed(characterName, conditions, interaction.user);
 
     return interaction.editReply({ embeds: [embed] });
+}
+
+async function handleResist(interaction) {
+    const targetUser = interaction.options.getUser('target') || interaction.user;
+    const modifier = interaction.options.getInteger('modifier') || 0;
+    const { combatant, error: findError } = findCombatant(interaction, targetUser.id);
+    if (findError) return interaction.editReply({ content: findError });
+    const result = await resistCondition(
+        { discordId: interaction.user.id },
+        { combatantId: combatant.id, conditionType: 'furcht', modifier }
+    );
+    combatant.conditions = await fetchConditions({ discordId: interaction.user.id }, combatant.id);
+    updateCombatDisplay(interaction.client, interaction.channelId).catch(() => {});
+    return interaction.editReply(
+        `${result.success ? '✅' : '❌'} Willenskraft ${result.rolls.join('/')} — Furcht ${result.levelBefore} → ${result.levelAfter}`
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -275,6 +252,17 @@ module.exports = {
                 .setName('list')
                 .setDescription('List all active conditions on a combatant')
                 .addUserOption(opt => opt.setName('target').setDescription('Target combatant (defaults to yourself)'))
+        )
+        .addSubcommand(sub =>
+            sub
+                .setName('resist-fear')
+                .setDescription('Roll Willenskraft to reduce Furcht')
+                .addUserOption(opt =>
+                    opt.setName('target').setDescription('Target (defaults to yourself; DM may target)')
+                )
+                .addIntegerOption(opt =>
+                    opt.setName('modifier').setDescription('Probe modifier').setMinValue(-20).setMaxValue(20)
+                )
         ),
 
     async execute(interaction) {
@@ -290,6 +278,8 @@ module.exports = {
                     return await handleRemove(interaction);
                 case 'list':
                     return await handleList(interaction);
+                case 'resist-fear':
+                    return await handleResist(interaction);
                 default:
                     return interaction.editReply({ content: '❌ Unknown subcommand.' });
             }

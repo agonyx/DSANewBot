@@ -24,8 +24,10 @@ const STAT_CONFIG = [
     { key: 'kk', label: 'KK' },
     { key: 'le_max', label: 'Max LP' },
     { key: 'le_current', label: 'Current LP' },
+    { key: 'wounds', label: 'Wounds' },
+    { key: 'wound_threshold_modifier', label: 'Wound Threshold Modifier' },
     { key: 'initiative', label: 'Initiative' },
-    { key: 'ruestungsschutz', label: 'Armor (RS)' },
+    { key: 'ruestungsschutz', label: 'Natural + Equipped RS' },
     { key: 'ausweichen', label: 'Ausweichen' },
     { key: 'schicksalspunkte_current', label: 'SchP (Current)' },
     { key: 'schicksalspunkte_max', label: 'SchP (Max)' },
@@ -163,8 +165,8 @@ module.exports = {
                     }
 
                     await updateStat({ discordId: interaction.user.id }, { statKey, value: parsedValue });
-
-                    stats[statKey] = parsedValue;
+                    const refreshed = await getCharacterSheet({ discordId: interaction.user.id });
+                    Object.assign(stats, refreshed.stats);
 
                     await interaction.editReply({
                         embeds: [createStatsEmbed(stats)],

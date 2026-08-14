@@ -2,6 +2,13 @@ const { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder } = require('discor
 const { getCharacterSheet } = require('../services/characters');
 const { readAvatar } = require('../utils/avatarStorage');
 const { createLogger } = require('../utils/logger');
+const { calculatePainLevel } = require('../utils/conditionUtils');
+const {
+    calculateEffectivePainLevel,
+    calculateWoundPenalty,
+    calculateWoundThreshold,
+    isIncapacitatedByWounds,
+} = require('../utils/woundUtils');
 const log = createLogger('show-stats');
 
 module.exports = {
@@ -25,9 +32,15 @@ module.exports = {
             const maxLP = stats.le_max || 1;
             const currentLP = stats.le_current;
             const healthPercentage = Math.floor((currentLP / maxLP) * 100);
-            const healthBar =
-                '■'.repeat(Math.round((currentLP / maxLP) * 10)) +
-                '□'.repeat(10 - Math.round((currentLP / maxLP) * 10));
+            const filledHealth = Math.round(Math.max(0, Math.min(1, currentLP / maxLP)) * 10);
+            const healthBar = '■'.repeat(filledHealth) + '□'.repeat(10 - filledHealth);
+            const woundThreshold = calculateWoundThreshold(stats.ko, stats.wound_threshold_modifier);
+            const woundPenalty = calculateWoundPenalty(stats.wounds);
+            const painLevel = calculateEffectivePainLevel(
+                calculatePainLevel(currentLP, maxLP),
+                stats.pain_suppression,
+                stats.pain_modifier
+            );
 
             const statsEmbed = new EmbedBuilder()
                 .setColor(0x2f3136)
@@ -61,8 +74,15 @@ module.exports = {
                         value: [
                             `**Initiative:** \`${stats.initiative}\``,
                             `**Ausweichen:** \`${stats.ausweichen}\``,
+                            `**Armor RS:** \`${stats.ruestungsschutz}\` (natural ${stats.natural_armor})`,
+                            `**Belastung:** \`${stats.belastung}\``,
                             `**Max LP:** \`${stats.le_max}\``,
                             `**Current LP:** \`${stats.le_current}\``,
+                            `**Wounds:** \`${stats.wounds}\``,
+                            `**Wound Threshold:** \`${woundThreshold || '—'}\``,
+                            `**Wound Penalty:** \`-${woundPenalty}\``,
+                            `**Pain:** \`${painLevel}\``,
+                            `**Capable:** \`${isIncapacitatedByWounds(stats.wounds) ? 'No' : 'Yes'}\``,
                         ].join('\n'),
                         inline: true,
                     }
@@ -79,6 +99,9 @@ module.exports = {
                 );
             resourceLines.push(
                 `🎲 **SchP:** ${schipsBar} ${stats.schicksalspunkte_current}/${stats.schicksalspunkte_max}`
+            );
+            resourceLines.push(
+                `⭐ **AP:** ${stats.ap_available} available / ${stats.ap_spent} spent / ${stats.ap_total} total`
             );
 
             // AsP (only if spellcaster)

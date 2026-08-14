@@ -10,6 +10,11 @@ import { resourceRoutes } from './routes/resources';
 import { mobRoutes } from './routes/mobs';
 import { ruleRoutes } from './routes/rules';
 import { combatRoutes } from './routes/combat';
+import { woundRoutes } from './routes/wounds';
+import { maneuverRoutes } from './routes/maneuvers';
+import { supernaturalRoutes } from './routes/supernatural';
+import { economyRoutes } from './routes/economy';
+import { advancementRoutes } from './routes/advancement';
 
 /**
  * The API app. Mounted under /api by server.ts. Discord commands call the same
@@ -28,7 +33,7 @@ export function createApiApp(opts: CreateApiOptions = {}) {
     app.onError(apiOnError);
 
     // --- Public routes ---
-    app.get('/health', (c) => c.json({ status: 'ok' }));
+    app.get('/health', c => c.json({ status: 'ok' }));
     app.route('/auth', authRoutes);
 
     // --- Protected routes (ctx required on every route) ---
@@ -50,7 +55,7 @@ export function createApiApp(opts: CreateApiOptions = {}) {
  * Phase B adds: app.route('/characters', characterRoutes); /inventory; /talents; ...
  */
 function registerProtectedRoutes(app: Hono<AppEnv>) {
-    app.get('/me', (c) => c.json({ discordId: c.get('ctx').discordId }));
+    app.get('/me', c => c.json({ discordId: c.get('ctx').discordId }));
     app.route('/characters', characterRoutes);
     app.route('/', inventoryRoutes);
     app.route('/talents', talentRoutes);
@@ -58,4 +63,9 @@ function registerProtectedRoutes(app: Hono<AppEnv>) {
     app.route('/mobs', mobRoutes);
     app.route('/rules', ruleRoutes);
     app.route('/combat', combatRoutes);
+    app.route('/wounds', woundRoutes);
+    app.route('/maneuvers', maneuverRoutes);
+    app.route('/supernatural', supernaturalRoutes);
+    app.route('/economy', economyRoutes);
+    app.route('/advancement', advancementRoutes);
 }
