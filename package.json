@@ -18,9 +18,10 @@
         "lint:fix": "eslint . --fix",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
-        "test": "npm run test:api && npm run test:unit",
+        "test": "npm run test:api && npm run test:unit && npm run test:commands",
         "test:api": "node --import tsx --test --test-concurrency=1 \"tests/api/*.test.ts\"",
         "test:unit": "jest --runInBand --testPathPatterns=\"tests/.*\\.test\\.js$\"",
+        "test:commands": "node scripts/validate-commands.js",
         "test:watch": "node --import tsx --test --watch \"tests/api/*.test.ts\""
     },
     "keywords": [],
