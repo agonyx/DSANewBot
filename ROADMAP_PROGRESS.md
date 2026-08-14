@@ -16,16 +16,16 @@ Last audit: 2026-08-14
 
 ## Current verification baseline
 
-| Check                   | Result         | Evidence / limitation                                                                                                                                       |
-| ----------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Full test gate          | **PASS**       | `npm test` on isolated Netcup PostgreSQL: 130/130 Node API/mechanics tests and 214/214 Jest command/unit tests pass (344 total).                            |
-| TypeScript              | **PASS**       | `npx tsc --noEmit`: zero errors at the final verified revision.                                                                                             |
-| Lint                    | **PASS**       | `npm run lint`: zero errors and 23 pre-existing warnings (two fewer than the starting baseline; no new warnings).                                           |
-| Repository formatting   | **KNOWN FAIL** | Pre-existing baseline is 87 files. Per the execution contract, unrelated files were not reformatted.                                                        |
-| Changed-file formatting | **PASS**       | Prettier passes on all 124 goal-changed files with unsupported formats ignored.                                                                             |
-| Migration               | **PASS**       | A fresh `pgvector/pgvector:pg16` container applied all 10 ordered migration files plus vector SQL; Drizzle reports 34 tables and no schema changes.         |
-| Catalog seed            | **PASS**       | Two consecutive clean-room seed runs succeeded: 59 talents, 14 maneuvers, 461 spells, 353 liturgies, 20 equipment entries, and 967 special abilities.       |
-| Isolation               | **PASS**       | Tests used an ephemeral `codex-dsa-roadmap-tldktn` container and temporary clone; the server's production `dsa-db` container was present and never mutated. |
+| Check                   | Result         | Evidence / limitation                                                                                                                                                             |
+| ----------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Full test gate          | **PASS**       | `npm test` on isolated Netcup PostgreSQL: 142/142 Node API/mechanics tests and 214/214 Jest command/unit tests pass (356 total); all 64 Discord commands also load and serialize. |
+| TypeScript              | **PASS**       | `npx tsc --noEmit`: zero errors at the final verified revision.                                                                                                                   |
+| Lint                    | **PASS**       | `npm run lint`: zero errors and 23 pre-existing warnings (two fewer than the starting baseline; no new warnings).                                                                 |
+| Repository formatting   | **KNOWN FAIL** | Pre-existing baseline is 87 files. Per the execution contract, unrelated files were not reformatted.                                                                              |
+| Changed-file formatting | **PASS**       | Prettier passes on every formatter-supported file changed by the committed roadmap and Nice-to-Have slices.                                                                       |
+| Migration               | **PASS**       | A fresh `pgvector/pgvector:pg16` container applied all 11 ordered migration files plus vector SQL; Drizzle reports 35 tables and no schema changes.                               |
+| Catalog seed            | **PASS**       | Two consecutive clean-room seed runs succeeded: 59 talents, 14 maneuvers, 461 spells, 353 liturgies, 20 equipment entries, and 967 special abilities.                             |
+| Isolation               | **PASS**       | Current Discord testing uses separate `dsa-discord-test-*` containers, network, volumes, checkout, and database; production `dsa-db` was not mutated.                             |
 
 The scoped Graphify pass found 1,165 DSANewBot nodes, 2,199 relationships, and
 58 labeled communities. The bounded semantic retry produced 50 document nodes,
@@ -387,3 +387,37 @@ local-Docker blocker without touching the production database or container.
 - `ROADMAP.md` has no unchecked in-scope item. Its remaining unchecked items are
   confined to the explicitly excluded Nice-to-Have sections. The current
   inventory and checkpoints above are DONE, with no external blocker remaining.
+
+### 2026-08-14 — Character export, dice macros, and Discord test deployment
+
+- Added `/export-character` and `GET /characters/me/export`. The selected
+  character is rendered as a safe UTF-8 text attachment containing attributes,
+  resources, wounds, combat values, talents, weapons, inventory, special
+  abilities, traditions, spells, liturgies, and wallet balances.
+- Added per-character `/macro save|list|roll|delete` plus authenticated API
+  routes. Names and dice expressions are normalized and bounded, ownership is
+  derived from the selected character, duplicate names update atomically, and a
+  character may store at most 50 macros.
+- Added `dice_macros` persistence and migration `0010_skinny_killraven.sql`.
+  A fresh isolated Netcup database applied all 11 migrations, installed pgvector
+  and the vector-search SQL, and exposed 35 public tables. Drizzle generation
+  reports no schema changes.
+- Added deterministic export/dice utility tests plus live API coverage for UTF-8
+  response metadata, validation, save/update/list/roll/delete behavior, caller
+  isolation, and ownership. The full gate passes with 142 API/mechanics tests and
+  214 Jest tests (356 total), followed by serialization of all 64 Discord
+  commands. TypeScript, lint (zero errors; 23 existing warnings), Git whitespace,
+  and changed-file Prettier checks pass.
+- Live deployment exposed and fixed two registration/startup defects: the deploy
+  entrypoint now installs the TypeScript resolver and returns a failing exit code
+  on REST errors, and startup tolerates the intentionally absent optional
+  `events/` directory. A production-runtime command validation gate prevents
+  regression.
+- Deployed all 64 commands to the configured Discord guild and started
+  `dsa-discord-test-bot` against the isolated `dsa-discord-test-db`. Discord login
+  as `Singularity#0898`, zero container restarts, `/health`, and `/ready` are
+  verified. The production database/container remained untouched.
+- Known test-data limitation: both production and isolated databases currently
+  contain zero `rule_pages` and `rule_chunks`. `/regel` command wiring and empty
+  result behavior are covered, but meaningful Regelwiki search cannot be
+  exercised until a corpus is imported.
