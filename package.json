@@ -18,7 +18,7 @@
         "lint:fix": "eslint . --fix",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
-        "test": "node --import tsx --test \"tests/api/*.test.ts\"",
+        "test": "node --import tsx --test --test-concurrency=1 \"tests/api/*.test.ts\"",
         "test:watch": "node --import tsx --test --watch \"tests/api/*.test.ts\""
     },
     "keywords": [],
