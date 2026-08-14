@@ -124,7 +124,7 @@ describe('supernatural API (live DB)', () => {
                 magicalTradition: 'Gildenmagier',
                 blessedTradition: 'Peraine',
                 deity: 'Peraine',
-                favoredTalents: ['Athletik'],
+                favoredTalents: ['Heilkunde: Wunden'],
             })
         );
         assert.equal(profile.status, 200);
@@ -215,20 +215,20 @@ describe('supernatural API (live DB)', () => {
             ).status,
             409
         );
-        const [athletics] = await db
+        const [woundHealing] = await db
             .select({ id: talents.id })
             .from(playerTalents)
             .innerJoin(talents, eq(playerTalents.talent_id, talents.id))
-            .where(and(eq(playerTalents.player_id, playerId), eq(talents.name, 'Athletik')))
+            .where(and(eq(playerTalents.player_id, playerId), eq(talents.name, 'Heilkunde: Wunden')))
             .limit(1);
-        assert.ok(athletics);
+        assert.ok(woundHealing);
         const miracle = await app.request(
             '/supernatural/miracle',
-            json('POST', { mode: 'TALENT', talentId: athletics.id })
+            json('POST', { mode: 'TALENT', talentId: woundHealing.id })
         );
         assert.equal(miracle.status, 201);
         const body = await miracle.json();
         assert.equal(body.kapCost, 4);
-        assert.equal(body.talent, 'Athletik');
+        assert.equal(body.talent, 'Heilkunde: Wunden');
     });
 });
