@@ -18,7 +18,9 @@
         "lint:fix": "eslint . --fix",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
-        "test": "node --import tsx --test --test-concurrency=1 \"tests/api/*.test.ts\"",
+        "test": "npm run test:api && npm run test:unit",
+        "test:api": "node --import tsx --test --test-concurrency=1 \"tests/api/*.test.ts\"",
+        "test:unit": "jest --runInBand --testPathPatterns=\"tests/.*\\.test\\.js$\"",
         "test:watch": "node --import tsx --test --watch \"tests/api/*.test.ts\""
     },
     "keywords": [],
