@@ -11,7 +11,16 @@ const { db } = require('../db');
 const { sql, eq, and, isNull, ilike } = require('drizzle-orm');
 const { rulePages } = require('../db/schema');
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+let openai = null;
+
+function getOpenAiClient() {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+        throw new Error('OPENAI_API_KEY is required for semantic rules search');
+    }
+    openai ??= new OpenAI({ apiKey });
+    return openai;
+}
 
 function normalizeSearchResult(result) {
     const content = result.chunk_text || result.content || '';
@@ -42,7 +51,7 @@ function normalizePageResult(result) {
 }
 
 async function createQueryEmbedding(query) {
-    const response = await openai.embeddings.create({
+    const response = await getOpenAiClient().embeddings.create({
         model: 'text-embedding-3-large',
         input: query.replace(/\n+/g, ' ').substring(0, 8000),
         dimensions: 1536,
