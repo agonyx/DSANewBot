@@ -1,7 +1,8 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { buyCatalogItem, listCatalog, sellOwnedAsset } = require('../services/economy');
 const { formatCurrency } = require('../utils/economyUtils');
 const { createLogger } = require('../utils/logger');
+const { buildSectionEmbeds } = require('../utils/embedUtils');
 const log = createLogger('shop');
 
 module.exports = {
@@ -86,18 +87,26 @@ module.exports = {
                     category: interaction.options.getString('category') || undefined,
                     limit: 20,
                 });
-                const embed = new EmbedBuilder()
-                    .setColor(0x8b6f47)
-                    .setTitle('🛒 Equipment Catalog')
-                    .setDescription(
-                        rows
-                            .map(
-                                row =>
-                                    `**${row.name}** · ${row.category} · ${formatCurrency(row.price_kreuzer)} · ${(row.weight_grams / 1000).toFixed(1)} Stein\n\`${row.id}\``
-                            )
-                            .join('\n') || 'No catalog entries matched.'
-                    );
-                return interaction.editReply({ embeds: [embed] });
+                const categories = [...new Set(rows.map(row => row.category))];
+                const sections = categories.map(category => ({
+                    name: category,
+                    lines: rows
+                        .filter(row => row.category === category)
+                        .map(
+                            row =>
+                                `**${row.name}** · ${formatCurrency(row.price_kreuzer)} · ${(row.weight_grams / 1000).toFixed(1)} Stein`
+                        ),
+                }));
+                return interaction.editReply({
+                    embeds: buildSectionEmbeds({
+                        title: '🛒 Equipment Catalog',
+                        description: rows.length
+                            ? `**${rows.length} result${rows.length === 1 ? '' : 's'}** · Use autocomplete in \`/shop buy\` to select an entry.`
+                            : 'No catalog entries matched.',
+                        sections,
+                        theme: 'economy',
+                    }),
+                });
             }
             if (subcommand === 'buy') {
                 const result = await buyCatalogItem(ctx, {

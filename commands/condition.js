@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { applyCondition, listConditions, removeCondition, resistCondition } = require('../services/combatEffects');
 const { createLogger } = require('../utils/logger');
 const {
@@ -9,6 +9,7 @@ const {
 } = require('../utils/conditionUtils');
 
 const { updateCombatDisplay } = require('../handlers/combatHandler');
+const { createEmbed, makeFooter } = require('../utils/embedUtils');
 const log = createLogger('condition');
 
 /**
@@ -50,14 +51,10 @@ function findCombatant(interaction, discordUserId) {
  * @returns {EmbedBuilder}
  */
 function buildConditionEmbed(characterName, conditions, user) {
-    const embed = new EmbedBuilder()
-        .setColor(conditions.length > 0 ? 0xe74c3c : 0x2ecc71)
+    const embed = createEmbed(conditions.length > 0 ? 'danger' : 'success')
         .setTitle(`${conditions.length > 0 ? '⚠️' : '✅'} Zustände — ${characterName}`)
         .setTimestamp()
-        .setFooter({
-            text: `Aktualisiert von ${user.username}`,
-            iconURL: user.avatarURL(),
-        });
+        .setFooter(makeFooter(user, 'Aktualisiert von'));
 
     if (conditions.length === 0) {
         embed.setDescription('Keine aktiven Zustände.');

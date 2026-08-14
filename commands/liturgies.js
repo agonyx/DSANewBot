@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const {
     castAbility,
     getLiturgy,
@@ -8,16 +8,16 @@ const {
 } = require('../services/supernatural');
 const { getOrLoadSession, nextTurn } = require('../handlers/combatTurnHandler');
 const { createLogger } = require('../utils/logger');
+const { buildListEmbeds, createEmbed, truncateText } = require('../utils/embedUtils');
 
 const log = createLogger('liturgies');
 
 function liturgyEmbed(liturgy) {
     const probe =
         [liturgy.probe_attr1, liturgy.probe_attr2, liturgy.probe_attr3].filter(Boolean).join('/') || 'Automatic';
-    const embed = new EmbedBuilder()
-        .setColor(0xd4ac0d)
+    const embed = createEmbed('karma')
         .setTitle(`🙏 ${liturgy.name}`)
-        .setDescription((liturgy.description || 'No description.').slice(0, 3500))
+        .setDescription(truncateText(liturgy.description, 3500, 'No description.'))
         .addFields(
             { name: 'Kind', value: liturgy.kind, inline: true },
             { name: 'Probe', value: probe, inline: true },
@@ -124,18 +124,13 @@ module.exports = {
                     limit: 25,
                 });
                 return interaction.editReply({
-                    embeds: [
-                        new EmbedBuilder()
-                            .setColor(0xd4ac0d)
-                            .setTitle('🙏 Liturgy and Ceremony Catalog')
-                            .setDescription(
-                                rows.length
-                                    ? rows
-                                          .map(row => `**${row.name}** — ${row.kind}, ${row.resource_cost} KaP`)
-                                          .join('\n')
-                                    : 'No matching liturgies.'
-                            ),
-                    ],
+                    embeds: buildListEmbeds({
+                        title: '🙏 Liturgy & Ceremony Catalog',
+                        theme: 'karma',
+                        description: `**${rows.length} result${rows.length === 1 ? '' : 's'}** · Use \`/liturgies show\` for full rules.`,
+                        lines: rows.map(row => `**${row.name}** · ${row.kind} · ${row.resource_cost} KaP`),
+                        emptyMessage: 'No matching liturgies.',
+                    }),
                 });
             }
             const liturgyId = interaction.options.getString('liturgy');

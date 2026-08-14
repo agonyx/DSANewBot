@@ -1,7 +1,8 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { getCharacterSheet } = require('../services/characters');
 const { treatWounds } = require('../services/wounds');
 const { createLogger } = require('../utils/logger');
+const { createEmbed, makeFooter } = require('../utils/embedUtils');
 
 const log = createLogger('treat-wounds');
 
@@ -50,8 +51,7 @@ function buildResultEmbed(result, user) {
     }
     if (effects.length === 0) effects.push('No lasting treatment effect.');
 
-    return new EmbedBuilder()
-        .setColor(result.success ? 0x57f287 : 0xed4245)
+    return createEmbed(result.success ? 'success' : 'danger')
         .setTitle(`🩹 Heilkunde Wunden — ${result.targetName}`)
         .setDescription(`${result.healerName}: **${outcome}**`)
         .addFields(
@@ -61,7 +61,7 @@ function buildResultEmbed(result, user) {
             },
             { name: 'Effect', value: effects.join('\n') }
         )
-        .setFooter({ text: `Treatment by ${user.username}`, iconURL: user.avatarURL() })
+        .setFooter(makeFooter(user, 'Treatment by'))
         .setTimestamp();
 }
 

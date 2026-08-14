@@ -1,6 +1,5 @@
 const {
     SlashCommandBuilder,
-    EmbedBuilder,
     ActionRowBuilder,
     StringSelectMenuBuilder,
     ModalBuilder,
@@ -14,6 +13,7 @@ const { eq, and } = require('drizzle-orm');
 const { players, items } = require('../db/schema');
 const { createLogger } = require('../utils/logger');
 const { synchronizeEquipmentDerivedStatsInTransaction } = require('../services/equipment');
+const { createEmbed, truncateText } = require('../utils/embedUtils');
 const log = createLogger('edit-item');
 
 const ITEM_STAT_CONFIG = [
@@ -160,8 +160,7 @@ module.exports = {
                     );
 
             const createItemEmbed = itemData =>
-                new EmbedBuilder()
-                    .setColor(0x57f287)
+                createEmbed('inventory')
                     .setTitle(`Editing Item: ${itemData.name}`)
                     .addFields(
                         { name: 'Name', value: itemData.name || 'N/A', inline: true },
@@ -175,8 +174,12 @@ module.exports = {
                             value: `RS ${itemData.armor_rs ?? 0} / BE ${itemData.armor_be ?? 0}`,
                             inline: true,
                         },
-                        { name: 'Effect', value: itemData.effect || '*None*', inline: false },
-                        { name: 'Description', value: itemData.description || '*None*', inline: false }
+                        { name: 'Effect', value: truncateText(itemData.effect, 1024, '*None*'), inline: false },
+                        {
+                            name: 'Description',
+                            value: truncateText(itemData.description, 1024, '*None*'),
+                            inline: false,
+                        }
                     );
 
             const exitButton = new ButtonBuilder()

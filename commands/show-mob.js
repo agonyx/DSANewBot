@@ -1,6 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { getMob, listMobs } = require('../services/mobs');
 const { createLogger } = require('../utils/logger');
+const { createEmbed, truncateText } = require('../utils/embedUtils');
 const log = createLogger('show-mob');
 
 module.exports = {
@@ -37,13 +38,10 @@ module.exports = {
         try {
             const mob = await getMob({ discordId: interaction.user.id }, mobName);
 
-            const mobEmbed = new EmbedBuilder()
-                .setColor(0x8b4513)
-                .setTitle(`👾 Mob Details: ${mob.name} 👾`)
-                .setTimestamp();
+            const mobEmbed = createEmbed('combat').setTitle(`👾 ${mob.name}`).setTimestamp();
 
             if (mob.description) {
-                mobEmbed.setDescription(`*${mob.description}*`);
+                mobEmbed.setDescription(`*${truncateText(mob.description, 4000)}*`);
             }
 
             mobEmbed.addFields(

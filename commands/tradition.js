@@ -1,12 +1,12 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { getSupernaturalProfile, setSupernaturalProfile } = require('../services/supernatural');
 const { createLogger } = require('../utils/logger');
+const { createEmbed } = require('../utils/embedUtils');
 
 const log = createLogger('tradition');
 
 function profileEmbed(profile) {
-    return new EmbedBuilder()
-        .setColor(0x6c3483)
+    return createEmbed('magic')
         .setTitle(`🔮 Traditions — ${profile.characterName || 'Selected character'}`)
         .addFields(
             { name: 'Magical tradition', value: profile.magicalTradition || profile.magical_tradition || 'None' },

@@ -1,7 +1,8 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { applyEffect, listEffects, removeEffect } = require('../services/combatEffects');
 const { updateCombatDisplay } = require('../handlers/combatHandler');
 const { createLogger } = require('../utils/logger');
+const { createEmbed } = require('../utils/embedUtils');
 
 const log = createLogger('effect');
 
@@ -29,8 +30,7 @@ function renderEffects(name, effects) {
         const duration = effect.duration_rounds == null ? 'permanent' : `${effect.duration_rounds} round(s)`;
         return `**${effect.effect_type}** — ${modifiers || 'state only'}; ${duration}`;
     });
-    return new EmbedBuilder()
-        .setColor(effects.length ? 0x5865f2 : 0x57f287)
+    return createEmbed(effects.length ? 'combat' : 'success')
         .setTitle(`✨ Effects — ${name}`)
         .setDescription(lines.join('\n') || 'No persistent effects.');
 }

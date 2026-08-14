@@ -1,4 +1,5 @@
 const { createSetupEmbed, createSetupActionRows } = require('../utils/combatComponents');
+const { EMBED_COLORS } = require('../utils/embedUtils');
 
 // =============================================================================
 // REUSABLE LOBBY FIXTURES
@@ -145,13 +146,13 @@ describe('createSetupEmbed', () => {
     test('has amber color when not ready', () => {
         const embed = createSetupEmbed(sessionId, dmUsername, [], false);
         const data = embed.toJSON();
-        expect(data.color).toBe(0xd97706);
+        expect(data.color).toBe(EMBED_COLORS.warning);
     });
 
     test('has green color when ready', () => {
         const embed = createSetupEmbed(sessionId, dmUsername, [], true);
         const data = embed.toJSON();
-        expect(data.color).toBe(0x2f9e44);
+        expect(data.color).toBe(EMBED_COLORS.success);
     });
 
     test('includes truncated session ID in footer', () => {
@@ -383,7 +384,7 @@ describe('createSetupEmbed - Fixture Tests', () => {
             const embed = createSetupEmbed(sessionId, dmUsername, participants, canStart);
             const data = embed.toJSON();
 
-            expect(data.color).toBe(0x2f9e44);
+            expect(data.color).toBe(EMBED_COLORS.success);
         });
 
         test('shows ready status in description', () => {

@@ -1,6 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { resolveProbe, listSkills } = require('../services/talents');
 const { createLogger } = require('../utils/logger');
+const { createEmbed, makeFooter } = require('../utils/embedUtils');
 
 const log = createLogger('probe');
 
@@ -87,8 +88,7 @@ function buildProbeEmbed(result, user) {
         qs,
     } = result;
 
-    return new EmbedBuilder()
-        .setColor(success ? 0x00ff00 : 0xff4444)
+    return createEmbed(success ? 'success' : 'danger')
         .setTitle(`🎯 ${talent.name}`)
         .setDescription(success ? `**Erfolg!** QS ${qs}` : '**Fehlschlag!**')
         .addFields(
@@ -132,9 +132,6 @@ function buildProbeEmbed(result, user) {
                   ]
                 : [])
         )
-        .setFooter({
-            text: `${characterName} • ${user.username}`,
-            iconURL: user.avatarURL(),
-        })
+        .setFooter(makeFooter(user, `${characterName} •`))
         .setTimestamp();
 }

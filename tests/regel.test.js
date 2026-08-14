@@ -61,6 +61,7 @@ const {
     searchRules: hybridSearch,
     getRulePage: fetchPageContent,
 } = require('../services/rules');
+const { EMBED_COLORS } = require('../utils/embedUtils');
 
 describe('regel command autocomplete', () => {
     beforeEach(() => {
@@ -522,10 +523,10 @@ describe('regel command execute', () => {
             expect(replyCall.embeds).toBeDefined();
             expect(replyCall.embeds).toHaveLength(1);
 
-            // Verify the embed has no-result styling (gray color)
+            // Verify the embed has no-result warning styling.
             const { EmbedBuilder } = require('discord.js');
             const embedInstance = EmbedBuilder.mock.results[0].value;
-            expect(embedInstance.setColor).toHaveBeenCalledWith(0x95a5a6);
+            expect(embedInstance.setColor).toHaveBeenCalledWith(EMBED_COLORS.warning);
         });
 
         test('shows no-result embed with category filter info', async () => {

@@ -1,7 +1,8 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { addItem } = require('../services/inventory');
 const { getSelectedPlayer } = require('../services/characters');
 const { createLogger } = require('../utils/logger');
+const { createEmbed } = require('../utils/embedUtils');
 const log = createLogger('add-item');
 
 const ITEM_TYPES = [
@@ -95,8 +96,7 @@ module.exports = {
 
             const stacked = item.quantity > quantity;
 
-            const embed = new EmbedBuilder()
-                .setColor(0x57f287)
+            const embed = createEmbed('success')
                 .setTitle(stacked ? '📦 Items Stacked' : '📦 Item Added')
                 .setDescription(
                     stacked

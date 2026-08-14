@@ -441,3 +441,29 @@ local-Docker blocker without touching the production database or container.
   validates 76 source modules as exactly 36 production and 38 development
   commands. TypeScript passes; lint has zero errors and the unchanged 23 warnings;
   changed-file Prettier and Git whitespace checks pass.
+
+### 2026-08-14 — Discord embed UX audit and cleanup
+
+- Audited all 57 direct embed constructions across 43 runtime files. Embeds remain
+  the correct Discord primitive for summaries, detail cards, editors, live combat,
+  and roll results; variable lists now use bounded multi-embed pages, while concise
+  mutation confirmations intentionally remain plain ephemeral messages.
+- Centralized semantic colors, footers, progress bars, truncation, human-readable
+  structured mechanics, and Discord limit-aware list/section paging in
+  `utils/embedUtils.js`. Added an architecture regression that prevents direct
+  `EmbedBuilder` or raw `setColor` use outside that presentation boundary.
+- Extracted testable inventory, weapon, character-sheet, maneuver, mob, and ability
+  views. Inventory now reports stacks, units, and total carried weight; weapons use
+  mobile-readable full-width sections; the sheet separates attributes, wounds,
+  combat, and resources; maneuver JSON is rendered as labeled rules; and all audited
+  catalogs/logs/activity views avoid silent record truncation.
+- Documented display-selection and layout policy in
+  `docs/discord-embed-style.md`. No schema, migration, service contract, command
+  name, or command-registration change was required.
+- Verification: the complete isolated Netcup gate passes 142/142 API/mechanics and
+  235/235 Jest tests (377 total), followed by serialization of all 76 source command
+  modules as exactly 36 production and 38 development commands. TypeScript passes;
+  lint has zero errors and 22 existing warnings (one fewer than the previous
+  baseline); Git whitespace and changed-file Prettier checks pass. The refreshed
+  `dsa-discord-test-bot` is logged in as `Singularity#0898`, has zero restarts, and
+  returns HTTP 200 for both `/health` and `/ready` against the isolated test database.

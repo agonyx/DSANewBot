@@ -1,6 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { getManeuver, listManeuvers } = require('../services/maneuvers');
 const { createLogger } = require('../utils/logger');
+const { buildManeuverDetailEmbed } = require('../utils/embedViews');
 
 const log = createLogger('show-maneuver');
 
@@ -29,23 +30,7 @@ module.exports = {
                 interaction.options.getString('maneuver')
             );
             return interaction.editReply({
-                embeds: [
-                    new EmbedBuilder()
-                        .setColor(0x5865f2)
-                        .setTitle(`⚔️ ${maneuver.name}`)
-                        .setDescription(maneuver.description || 'No description')
-                        .addFields(
-                            { name: 'Type', value: maneuver.action_type || 'Passive', inline: true },
-                            {
-                                name: 'Prerequisites',
-                                value: `\`\`\`json\n${JSON.stringify(maneuver.prerequisites || {}, null, 2).substring(0, 900)}\n\`\`\``,
-                            },
-                            {
-                                name: 'Rules',
-                                value: `\`\`\`json\n${JSON.stringify(maneuver.rules || {}, null, 2).substring(0, 900)}\n\`\`\``,
-                            }
-                        ),
-                ],
+                embeds: [buildManeuverDetailEmbed(maneuver)],
             });
         } catch (error) {
             log.error({ error }, 'Show maneuver failed');

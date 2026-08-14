@@ -1,6 +1,5 @@
 const {
     SlashCommandBuilder,
-    EmbedBuilder,
     ActionRowBuilder,
     StringSelectMenuBuilder,
     ModalBuilder,
@@ -12,14 +11,42 @@ const {
 } = require('discord.js');
 const { getMob, updateMob, listMobs } = require('../services/mobs');
 const { createLogger } = require('../utils/logger');
+const { createEmbed, truncateText } = require('../utils/embedUtils');
 const log = createLogger('edit-mob');
 
 const MOB_STAT_CONFIG = [
     { key: 'hp', backendKey: 'base_max_hp', label: 'Max HP', type: 'integer', min: 1, style: TextInputStyle.Short },
-    { key: 'initiative', backendKey: 'base_initiative', label: 'Initiative', type: 'integer', style: TextInputStyle.Short },
-    { key: 'attack', backendKey: 'base_attack_value', label: 'Attack (AT)', type: 'integer', min: 0, style: TextInputStyle.Short },
-    { key: 'parry', backendKey: 'base_parry_value', label: 'Parry (PA)', type: 'integer', min: 0, style: TextInputStyle.Short },
-    { key: 'armor', backendKey: 'base_armor_soak', label: 'Armor (RS)', type: 'integer', min: 0, style: TextInputStyle.Short },
+    {
+        key: 'initiative',
+        backendKey: 'base_initiative',
+        label: 'Initiative',
+        type: 'integer',
+        style: TextInputStyle.Short,
+    },
+    {
+        key: 'attack',
+        backendKey: 'base_attack_value',
+        label: 'Attack (AT)',
+        type: 'integer',
+        min: 0,
+        style: TextInputStyle.Short,
+    },
+    {
+        key: 'parry',
+        backendKey: 'base_parry_value',
+        label: 'Parry (PA)',
+        type: 'integer',
+        min: 0,
+        style: TextInputStyle.Short,
+    },
+    {
+        key: 'armor',
+        backendKey: 'base_armor_soak',
+        label: 'Armor (RS)',
+        type: 'integer',
+        min: 0,
+        style: TextInputStyle.Short,
+    },
     {
         key: 'damage',
         backendKey: 'base_damage_tp',
@@ -28,7 +55,13 @@ const MOB_STAT_CONFIG = [
         validationRegex: /^\d+w\d+(\s*\+\s*\d+)?$/i,
         style: TextInputStyle.Short,
     },
-    { key: 'description', backendKey: 'description', label: 'Description', type: 'string_long', style: TextInputStyle.Paragraph },
+    {
+        key: 'description',
+        backendKey: 'description',
+        label: 'Description',
+        type: 'string_long',
+        style: TextInputStyle.Paragraph,
+    },
 ];
 
 module.exports = {
@@ -81,10 +114,9 @@ module.exports = {
                     );
 
             const createMobStatsEmbed = currentMobData =>
-                new EmbedBuilder()
-                    .setColor(0x8b4513)
+                createEmbed('combat')
                     .setTitle(`🔧 Editing Mob: ${currentMobData.name} (ID: ${currentMobData.id})`)
-                    .setDescription(currentMobData.description || '*No description.*')
+                    .setDescription(truncateText(currentMobData.description, 4096, '*No description.*'))
                     .addFields(
                         MOB_STAT_CONFIG.filter(s => s.key !== 'description').map(stat => ({
                             name: `**${stat.label}**`,

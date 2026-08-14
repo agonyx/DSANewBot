@@ -1,7 +1,8 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { acceptTrade, cancelTrade, createTrade, declineTrade, listTrades } = require('../services/trades');
 const { formatCurrency } = require('../utils/economyUtils');
 const { createLogger } = require('../utils/logger');
+const { buildListEmbeds } = require('../utils/embedUtils');
 const log = createLogger('trade');
 
 module.exports = {
@@ -83,19 +84,24 @@ module.exports = {
             }
             if (subcommand === 'list') {
                 const rows = await listTrades(ctx);
-                const embed = new EmbedBuilder()
-                    .setColor(0x4e7d61)
-                    .setTitle('🤝 Trades')
-                    .setDescription(
-                        rows
-                            .slice(0, 15)
-                            .map(
-                                ({ trade, assets }) =>
-                                    `\`${trade.id}\` · **${trade.status}**\nOffer ${formatCurrency(trade.offered_kreuzer)} / Request ${formatCurrency(trade.requested_kreuzer)}${assets.length ? ` · ${assets.map(asset => `${asset.quantity}× ${asset.name_snapshot}`).join(', ')}` : ''}`
-                            )
-                            .join('\n') || 'No trades yet.'
+                const lines = rows.map(({ trade, assets }) => {
+                    const offeredAssets = assets.length
+                        ? ` · ${assets.map(asset => `${asset.quantity}× ${asset.name_snapshot}`).join(', ')}`
+                        : '';
+                    return (
+                        `**${trade.status}** · ${formatCurrency(trade.offered_kreuzer)} offered → ${formatCurrency(trade.requested_kreuzer)} requested${offeredAssets}\n` +
+                        `ID: \`${trade.id}\``
                     );
-                return interaction.editReply({ embeds: [embed] });
+                });
+                return interaction.editReply({
+                    embeds: buildListEmbeds({
+                        title: '🤝 Trades',
+                        description: `**${rows.length} recent trade${rows.length === 1 ? '' : 's'}**`,
+                        lines,
+                        emptyMessage: 'No trades yet.',
+                        theme: 'economy',
+                    }),
+                });
             }
             const tradeId = interaction.options.getString('trade_id', true);
             const result =

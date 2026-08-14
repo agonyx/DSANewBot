@@ -14,7 +14,6 @@ const {
     ModalBuilder,
     TextInputBuilder,
     TextInputStyle,
-    EmbedBuilder,
 } = require('discord.js');
 
 const { db, callEdgeFunction } = require('../db');

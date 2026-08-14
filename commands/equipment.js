@@ -1,7 +1,8 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { equipItem, getEquipmentSummary, unequipItem } = require('../services/equipment');
 const { unequipWeapon } = require('../services/inventory');
 const { createLogger } = require('../utils/logger');
+const { createEmbed, progressBar } = require('../utils/embedUtils');
 const log = createLogger('equipment');
 
 const SLOT_CHOICES = ['HEAD', 'BODY', 'ARMS', 'HANDS', 'LEGS', 'FEET', 'BACK', 'WAIST', 'NECK', 'ACCESSORY'].map(
@@ -47,8 +48,7 @@ module.exports = {
                 const summary = await getEquipmentSummary(ctx);
                 const equippedItems = summary.items.filter(item => item.is_equipped);
                 const equippedWeapons = summary.weapons.filter(weapon => weapon.is_equipped === 'Y');
-                const embed = new EmbedBuilder()
-                    .setColor(0x607d8b)
+                const embed = createEmbed('equipment')
                     .setTitle(`🛡️ ${summary.characterName} — Equipment`)
                     .addFields(
                         {
@@ -70,7 +70,7 @@ module.exports = {
                         },
                         {
                             name: 'Load',
-                            value: `${(summary.state.totalWeightGrams / 1000).toFixed(1)} / ${(summary.state.carryingCapacityGrams / 1000).toFixed(1)} Stein · Belastung ${summary.state.encumbrance} · RS ${summary.state.armorSoak}`,
+                            value: `${progressBar(summary.state.totalWeightGrams, summary.state.carryingCapacityGrams)}\n${(summary.state.totalWeightGrams / 1000).toFixed(1)} / ${(summary.state.carryingCapacityGrams / 1000).toFixed(1)} Stein · Belastung ${summary.state.encumbrance} · RS ${summary.state.armorSoak}`,
                         }
                     );
                 return interaction.editReply({ embeds: [embed] });

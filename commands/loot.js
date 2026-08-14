@@ -1,7 +1,8 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { awardLoot, cancelLootPool, generateLoot, getLootPool, listLootPools } = require('../services/loot');
 const { formatCurrency } = require('../utils/economyUtils');
 const { createLogger } = require('../utils/logger');
+const { buildListEmbeds, buildSectionEmbeds } = require('../utils/embedUtils');
 const log = createLogger('loot');
 
 module.exports = {
@@ -74,29 +75,35 @@ module.exports = {
             }
             if (subcommand === 'list') {
                 const rows = await listLootPools(ctx, interaction.options.getString('session_id', true));
-                return interaction.editReply(
-                    rows.map(row => `\`${row.id}\` · **${row.name}** · Tier ${row.tier} · ${row.status}`).join('\n') ||
-                        'No loot pools for this combat.'
-                );
+                return interaction.editReply({
+                    embeds: buildListEmbeds({
+                        title: '🎁 Loot Pools',
+                        theme: 'economy',
+                        lines: rows.map(row => `**${row.name}** · Tier ${row.tier} · ${row.status}\nID: \`${row.id}\``),
+                        emptyMessage: 'No loot pools for this combat.',
+                    }),
+                });
             }
             if (subcommand === 'show') {
                 const result = await getLootPool(ctx, interaction.options.getString('pool_id', true));
-                const embed = new EmbedBuilder()
-                    .setColor(0xc49a48)
-                    .setTitle(`🎁 ${result.pool.name}`)
-                    .setDescription(
-                        `Status: **${result.pool.status}** · Tier ${result.pool.tier}\nCurrency: **${formatCurrency(result.pool.currency_remaining_kreuzer)}**`
-                    )
-                    .addFields({
-                        name: 'Entries',
-                        value:
-                            result.entries
-                                .map(
-                                    row => `\`${row.entry.id}\` · ${row.entry.quantity_remaining}× ${row.catalog.name}`
-                                )
-                                .join('\n') || 'No entries remain.',
-                    });
-                return interaction.editReply({ embeds: [embed] });
+                return interaction.editReply({
+                    embeds: buildSectionEmbeds({
+                        title: `🎁 ${result.pool.name}`,
+                        description: `**${result.pool.status}** · Tier ${result.pool.tier} · ${formatCurrency(result.pool.currency_remaining_kreuzer)} remaining`,
+                        sections: [
+                            {
+                                name: 'Entries',
+                                lines: result.entries.length
+                                    ? result.entries.map(
+                                          row =>
+                                              `**${row.entry.quantity_remaining}× ${row.catalog.name}**\nID: \`${row.entry.id}\``
+                                      )
+                                    : ['No entries remain.'],
+                            },
+                        ],
+                        theme: 'economy',
+                    }),
+                });
             }
             if (subcommand === 'award') {
                 const result = await awardLoot(ctx, {

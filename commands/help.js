@@ -1,4 +1,5 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
+const { createEmbed } = require('../utils/embedUtils');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -33,8 +34,7 @@ module.exports = {
             });
         }
 
-        const helpEmbed = new EmbedBuilder()
-            .setColor(0x2f3136)
+        const helpEmbed = createEmbed('neutral')
             .setTitle('📚 DSA Bot Help')
             .setDescription('A Discord bot for **DSA (Das Schwarze Auge) 5th Edition** combat management.')
             .addFields(
@@ -97,8 +97,7 @@ module.exports = {
 
 function getCategoryHelp(category) {
     const categories = {
-        character: new EmbedBuilder()
-            .setColor(0x2f3136)
+        character: createEmbed('character')
             .setTitle('👤 Character Commands')
             .setDescription('Manage your DSA character')
             .addFields(
@@ -124,8 +123,7 @@ function getCategoryHelp(category) {
                 }
             ),
 
-        combat: new EmbedBuilder()
-            .setColor(0x2f3136)
+        combat: createEmbed('combat')
             .setTitle('⚔️ Combat Commands')
             .setDescription('Combat encounter management')
             .addFields(
@@ -146,8 +144,7 @@ function getCategoryHelp(category) {
                 { name: '/effect', value: 'Add, remove, or list persistent combat buffs and debuffs (DM)' }
             ),
 
-        items: new EmbedBuilder()
-            .setColor(0x2f3136)
+        items: createEmbed('inventory')
             .setTitle('🎒 Items & Inventory Commands')
             .setDescription('Manage your inventory')
             .addFields(
@@ -159,8 +156,7 @@ function getCategoryHelp(category) {
                 { name: '/inv and /items', value: 'Complete aliases for /inventory' }
             ),
 
-        weapons: new EmbedBuilder()
-            .setColor(0x2f3136)
+        weapons: createEmbed('combat')
             .setTitle('🗡️ Weapon Commands')
             .setDescription('Manage your weapons')
             .addFields(
@@ -171,8 +167,7 @@ function getCategoryHelp(category) {
                 { name: '/weapon delete', value: 'Remove a weapon permanently' }
             ),
 
-        skills: new EmbedBuilder()
-            .setColor(0x2f3136)
+        skills: createEmbed('character')
             .setTitle('📋 Skill Commands')
             .setDescription('Combat skills and maneuvers')
             .addFields(
@@ -184,8 +179,7 @@ function getCategoryHelp(category) {
                 { name: '/probe', value: 'Roll a learned talent probe with optional modifier' }
             ),
 
-        supernatural: new EmbedBuilder()
-            .setColor(0x6c3483)
+        supernatural: createEmbed('magic')
             .setTitle('🔮 Magic & Karma Commands')
             .setDescription('Traditions, learned abilities, casting, ceremonies, and miracles')
             .addFields(
@@ -203,8 +197,7 @@ function getCategoryHelp(category) {
                 { name: '/kap', value: 'Manage the Karma Point pool used by liturgies and miracles' }
             ),
 
-        economy: new EmbedBuilder()
-            .setColor(0xd4af37)
+        economy: createEmbed('economy')
             .setTitle('💰 Equipment & Economy Commands')
             .setDescription('Money, shopping, load, armor, trades, and post-combat rewards')
             .addFields(
@@ -215,8 +208,7 @@ function getCategoryHelp(category) {
                 { name: '/loot', value: 'Generate and distribute tiered post-combat loot (DM)' }
             ),
 
-        mobs: new EmbedBuilder()
-            .setColor(0x2f3136)
+        mobs: createEmbed('combat')
             .setTitle('👾 Mob Commands (DM Only)')
             .setDescription('Create and manage NPC templates for combat')
             .addFields(
@@ -227,8 +219,7 @@ function getCategoryHelp(category) {
                 { name: '/mob list', value: 'List all available mob templates' }
             ),
 
-        regelwiki: new EmbedBuilder()
-            .setColor(0x2f3136)
+        regelwiki: createEmbed('rules')
             .setTitle('📖 Regelwiki Commands')
             .setDescription('Search the DSA 5e rules database (7,000+ rules from the Regelwiki)')
             .addFields(
@@ -244,8 +235,7 @@ function getCategoryHelp(category) {
                 }
             ),
 
-        utility: new EmbedBuilder()
-            .setColor(0x2f3136)
+        utility: createEmbed('info')
             .setTitle('🎲 Utility Commands')
             .setDescription('General utility commands')
             .addFields(

@@ -1,6 +1,5 @@
 const {
     SlashCommandBuilder,
-    EmbedBuilder,
     ActionRowBuilder,
     StringSelectMenuBuilder,
     ModalBuilder,
@@ -11,6 +10,7 @@ const {
 } = require('discord.js');
 const { getCharacterSheet, updateStat } = require('../services/characters');
 const { createLogger } = require('../utils/logger');
+const { createEmbed } = require('../utils/embedUtils');
 const log = createLogger('edit-stats');
 
 const STAT_CONFIG = [
@@ -64,8 +64,7 @@ module.exports = {
                     );
 
             const createStatsEmbed = statsData =>
-                new EmbedBuilder()
-                    .setColor(0x2f3136)
+                createEmbed('character')
                     .setTitle('🔧 Character Stat Editor')
                     .setDescription('**Select a stat from the dropdown below to modify it**')
                     .addFields(

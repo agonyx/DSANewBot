@@ -1,9 +1,10 @@
-const { SlashCommandBuilder, StringSelectMenuBuilder, ActionRowBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, StringSelectMenuBuilder, ActionRowBuilder } = require('discord.js');
 const { db } = require('../db');
 const { eq, and } = require('drizzle-orm');
 const { players, items, stats: statsTable } = require('../db/schema');
 const { rollDice } = require('../utils/rollUtil');
 const { createLogger } = require('../utils/logger');
+const { createEmbed, progressBar, truncateText } = require('../utils/embedUtils');
 const log = createLogger('use-item');
 
 const CONSUMABLE_TYPES = ['POTION', 'FOOD', 'SCROLL'];
@@ -146,16 +147,13 @@ module.exports = {
                         await db.delete(items).where(eq(items.id, parseInt(itemId)));
                     }
 
-                    const embed = new EmbedBuilder()
-                        .setColor(0x57f287)
+                    const embed = createEmbed('success')
                         .setTitle('🧪 Item Used')
                         .setDescription(`**${player.name}** used **${item.name}**`)
-                        .addFields({ name: 'Effect', value: effectResult });
+                        .addFields({ name: 'Effect', value: truncateText(effectResult, 1024) });
 
                     if (healingDone > 0) {
-                        const healthBar =
-                            '■'.repeat(Math.round((stats.le_current / stats.le_max) * 10)) +
-                            '□'.repeat(10 - Math.round((stats.le_current / stats.le_max) * 10));
+                        const healthBar = progressBar(stats.le_current, stats.le_max);
                         embed.addFields({
                             name: 'Current HP',
                             value: `${healthBar} ${stats.le_current}/${stats.le_max}`,

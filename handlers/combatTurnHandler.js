@@ -12,7 +12,6 @@ const {
     StringSelectMenuBuilder,
     StringSelectMenuOptionBuilder,
     ActionRowBuilder,
-    EmbedBuilder,
     ButtonStyle,
     AttachmentBuilder,
 } = require('discord.js');
@@ -32,6 +31,7 @@ const {
 } = require('../db/schema');
 const { combatantToMemory, sessionToMemory } = require('../utils/transforms');
 const { createLogger } = require('../utils/logger');
+const { createEmbed } = require('../utils/embedUtils');
 const { resolveAttack, parseAndRollDamage, applySoak, resolveDefense, rollDice } = require('../utils/combatUtils');
 const {
     calculatePainLevel,
@@ -959,10 +959,7 @@ function formatRecentEventLine(line) {
 function createCombatEmbed(session) {
     if (!session || typeof session !== 'object') {
         log.error('Invalid or missing session object in createCombatEmbed');
-        return new EmbedBuilder()
-            .setColor(0xff0000)
-            .setTitle('Combat Status Error')
-            .setDescription('Invalid session data.');
+        return createEmbed('danger').setTitle('Combat Status Error').setDescription('Invalid session data.');
     }
 
     const combatants = Array.isArray(session.combatants) ? session.combatants : [];
@@ -980,10 +977,7 @@ function createCombatEmbed(session) {
         title += ` | Round ${session.currentRound}`;
     }
 
-    const combatEmbed = new EmbedBuilder()
-        .setColor(getEmbedColor(session.state, combatants))
-        .setTitle(title)
-        .setTimestamp();
+    const combatEmbed = createEmbed(getEmbedColor(session.state, combatants)).setTitle(title).setTimestamp();
 
     // Description - minimal now, spotlight field carries the active turn info
     const descriptionLines = [];

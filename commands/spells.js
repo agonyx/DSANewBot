@@ -1,16 +1,16 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { castAbility, getSpell, learnSpell, listLearnedSpells, listSpellCatalog } = require('../services/supernatural');
 const { getOrLoadSession, nextTurn } = require('../handlers/combatTurnHandler');
 const { createLogger } = require('../utils/logger');
+const { buildListEmbeds, createEmbed, truncateText } = require('../utils/embedUtils');
 
 const log = createLogger('spells');
 
 function spellEmbed(spell) {
     const probe = [spell.probe_attr1, spell.probe_attr2, spell.probe_attr3].filter(Boolean).join('/') || 'Automatic';
-    const embed = new EmbedBuilder()
-        .setColor(0x8e44ad)
+    const embed = createEmbed('magic')
         .setTitle(`✨ ${spell.name}`)
-        .setDescription((spell.description || 'No description.').slice(0, 3500))
+        .setDescription(truncateText(spell.description, 3500, 'No description.'))
         .addFields(
             { name: 'Kind', value: spell.kind, inline: true },
             { name: 'Probe', value: probe, inline: true },
@@ -116,15 +116,15 @@ module.exports = {
                     search: interaction.options.getString('search') || undefined,
                     limit: 25,
                 });
-                const embed = new EmbedBuilder()
-                    .setColor(0x8e44ad)
-                    .setTitle('✨ Spell and Ritual Catalog')
-                    .setDescription(
-                        rows.length
-                            ? rows.map(row => `**${row.name}** — ${row.kind}, ${row.resource_cost} AsP`).join('\n')
-                            : 'No matching spells.'
-                    );
-                return interaction.editReply({ embeds: [embed] });
+                return interaction.editReply({
+                    embeds: buildListEmbeds({
+                        title: '✨ Spell & Ritual Catalog',
+                        theme: 'magic',
+                        description: `**${rows.length} result${rows.length === 1 ? '' : 's'}** · Use \`/spells show\` for full rules.`,
+                        lines: rows.map(row => `**${row.name}** · ${row.kind} · ${row.resource_cost} AsP`),
+                        emptyMessage: 'No matching spells.',
+                    }),
+                });
             }
             const spellId = interaction.options.getString('spell');
             if (subcommand === 'show')

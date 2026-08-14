@@ -1,6 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { addWeapon } = require('../services/inventory');
 const { createLogger } = require('../utils/logger');
+const { createEmbed } = require('../utils/embedUtils');
 const log = createLogger('add-weapon');
 
 module.exports = {
@@ -89,8 +90,7 @@ module.exports = {
                 }
             );
 
-            const embed = new EmbedBuilder()
-                .setColor(0x00ff00)
+            const embed = createEmbed('success')
                 .setTitle('Weapon Added Successfully')
                 .addFields(
                     { name: 'Name', value: weapon.name, inline: true },

@@ -1,6 +1,5 @@
 const {
     SlashCommandBuilder,
-    EmbedBuilder,
     ActionRowBuilder,
     StringSelectMenuBuilder,
     ModalBuilder,
@@ -13,6 +12,7 @@ const { db } = require('../db');
 const { eq, and } = require('drizzle-orm');
 const { players, weapons } = require('../db/schema');
 const { createLogger } = require('../utils/logger');
+const { createEmbed } = require('../utils/embedUtils');
 const { synchronizeEquipmentDerivedStatsInTransaction } = require('../services/equipment');
 const log = createLogger('edit-weapon');
 
@@ -176,8 +176,7 @@ module.exports = {
                     );
 
             const createWeaponEmbed = weaponData =>
-                new EmbedBuilder()
-                    .setColor(0x5865f2)
+                createEmbed('combat')
                     .setTitle(`⚔️ Editing Weapon: ${weaponData.name}`)
                     .addFields(
                         { name: 'Type', value: weaponData.type || 'N/A', inline: true },

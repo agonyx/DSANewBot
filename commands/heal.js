@@ -1,6 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { healCharacter } = require('../services/resources');
 const { createLogger } = require('../utils/logger');
+const { createEmbed, makeFooter, progressBar } = require('../utils/embedUtils');
 const log = createLogger('heal');
 
 module.exports = {
@@ -34,12 +35,10 @@ module.exports = {
                 });
             }
 
-            const healthBar =
-                '■'.repeat(Math.round((newValue / max) * 10)) + '□'.repeat(10 - Math.round((newValue / max) * 10));
+            const healthBar = progressBar(newValue, max);
             const healthPercentage = Math.round((newValue / max) * 100);
 
-            const embed = new EmbedBuilder()
-                .setColor(0x57f287)
+            const embed = createEmbed('success')
                 .setTitle('💚 Healing Applied')
                 .setDescription(`**${characterName}** has been healed!`)
                 .addFields(
@@ -48,7 +47,7 @@ module.exports = {
                     { name: 'Current HP', value: `${newValue}/${max}`, inline: true }
                 )
                 .addFields({ name: 'Health Bar', value: `${healthBar} **${healthPercentage}%**` })
-                .setFooter({ text: `Healed by ${interaction.user.username}`, iconURL: interaction.user.avatarURL() })
+                .setFooter(makeFooter(interaction.user, 'Healed by'))
                 .setTimestamp();
 
             return interaction.editReply({ embeds: [embed] });

@@ -1,7 +1,8 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { invokeMiracle } = require('../services/supernatural');
 const { listSkills } = require('../services/talents');
 const { createLogger } = require('../utils/logger');
+const { createEmbed } = require('../utils/embedUtils');
 
 const log = createLogger('miracle');
 
@@ -66,8 +67,7 @@ module.exports = {
                     combatantId: interaction.options.getString('combatant') ?? undefined,
                 }
             );
-            const embed = new EmbedBuilder()
-                .setColor(0xf1c40f)
+            const embed = createEmbed('karma')
                 .setTitle(`🙏 Miracle of ${result.deity}`)
                 .setDescription(
                     mode === 'TALENT'

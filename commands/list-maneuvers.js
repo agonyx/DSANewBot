@@ -1,6 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { listManeuvers } = require('../services/maneuvers');
 const { createLogger } = require('../utils/logger');
+const { buildManeuverListEmbeds } = require('../utils/embedViews');
 
 const log = createLogger('list-maneuvers');
 
@@ -25,17 +26,8 @@ module.exports = {
                 { discordId: interaction.user.id },
                 interaction.options.getString('type') || undefined
             );
-            const lines = maneuvers.map(
-                maneuver =>
-                    `**${maneuver.name}** (${maneuver.action_type || 'passive'}) — ${maneuver.description || 'No description'}`
-            );
             return interaction.editReply({
-                embeds: [
-                    new EmbedBuilder()
-                        .setColor(0x5865f2)
-                        .setTitle('⚔️ Combat Maneuvers')
-                        .setDescription((lines.join('\n') || 'No maneuvers found.').substring(0, 4096)),
-                ],
+                embeds: buildManeuverListEmbeds(maneuvers),
             });
         } catch (error) {
             log.error({ error }, 'Maneuver list failed');

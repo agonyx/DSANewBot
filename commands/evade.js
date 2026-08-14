@@ -1,10 +1,11 @@
-const { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder } = require('discord.js');
+const { SlashCommandBuilder, AttachmentBuilder } = require('discord.js');
 const { db } = require('../db');
 const { eq, and } = require('drizzle-orm');
 const { players, stats: statsTable } = require('../db/schema');
 const { readAvatar } = require('../utils/avatarStorage');
 const { rollDice } = require('../utils/rollUtil');
 const { createLogger } = require('../utils/logger');
+const { createEmbed, makeFooter } = require('../utils/embedUtils');
 const log = createLogger('evade');
 
 module.exports = {
@@ -49,8 +50,7 @@ module.exports = {
             const diceComparison = `${diceRoll}${success ? ' ≤ ' : ' > '}${ausweichen}`;
             const successChance = `${Math.round((ausweichen / 20) * 100)}% evasion chance`;
 
-            const embed = new EmbedBuilder()
-                .setColor(success ? 0x57f287 : 0xed4245)
+            const embed = createEmbed(success ? 'success' : 'danger')
                 .setTitle(`🛡️ Evasion Attempt - ${successIndicator}`)
                 .setDescription(
                     [
@@ -69,10 +69,7 @@ module.exports = {
                     ].join('\n'),
                     inline: true,
                 })
-                .setFooter({
-                    text: `Requested by ${interaction.user.username}`,
-                    iconURL: interaction.user.avatarURL(),
-                })
+                .setFooter(makeFooter(interaction.user))
                 .setTimestamp();
 
             const files = [];

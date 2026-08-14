@@ -1,6 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { rollDice } = require('../utils/rollUtil');
 const { formatDiceRollBreakdown, rollNotation } = require('../utils/diceUtils');
+const { createEmbed, makeFooter } = require('../utils/embedUtils');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -24,8 +25,7 @@ module.exports = {
             });
         }
 
-        const embed = new EmbedBuilder()
-            .setColor(0x5865f2)
+        const embed = createEmbed('info')
             .setTitle(`🎲 Dice Roll: ${result.notation.toUpperCase()}`)
             .setDescription(`**Result:** \`${result.total}\``)
             .addFields({
@@ -33,10 +33,7 @@ module.exports = {
                 value: `\`${formatDiceRollBreakdown(result)}\``,
                 inline: true,
             })
-            .setFooter({
-                text: `Rolled by ${interaction.user.username}`,
-                iconURL: interaction.user.avatarURL(),
-            })
+            .setFooter(makeFooter(interaction.user, 'Rolled by'))
             .setTimestamp();
 
         return interaction.reply({

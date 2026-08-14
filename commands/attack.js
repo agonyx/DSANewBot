@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { db } = require('../db');
 const { eq, and, inArray } = require('drizzle-orm');
 const { players, stats, weapons, playerActionModifications, actionModifications } = require('../db/schema');
@@ -10,6 +10,7 @@ const {
     isIncapacitatedByWounds,
 } = require('../utils/woundUtils');
 const { createLogger } = require('../utils/logger');
+const { createEmbed } = require('../utils/embedUtils');
 const log = createLogger('attack');
 
 async function getPlayerData(discordId) {
@@ -244,8 +245,7 @@ module.exports = {
                 }
             }
 
-            const resultEmbed = new EmbedBuilder()
-                .setColor(hitConnected ? '#2ECC71' : '#E74C3C')
+            const resultEmbed = createEmbed(hitConnected ? 'success' : 'danger')
                 .setTitle('Standalone Attack Resolution')
                 .setDescription(description)
                 .setTimestamp();

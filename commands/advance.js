@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const {
     getAdvancementOptions,
     getApSummary,
@@ -9,6 +9,7 @@ const {
     raiseTalent,
 } = require('../services/advancement');
 const { createLogger } = require('../utils/logger');
+const { createEmbed, progressBar } = require('../utils/embedUtils');
 
 const log = createLogger('advance');
 
@@ -127,9 +128,11 @@ module.exports = {
                 const ledger = summary.ledger
                     .slice(0, 10)
                     .map(row => `${row.amount >= 0 ? '+' : ''}${row.amount} — ${row.description || row.category}`);
-                const embed = new EmbedBuilder()
-                    .setColor(0x3498db)
+                const embed = createEmbed('character')
                     .setTitle(`⭐ Advancement — ${summary.characterName}`)
+                    .setDescription(
+                        `${progressBar(summary.spent, summary.total)} ${summary.spent}/${summary.total} AP spent`
+                    )
                     .addFields(
                         { name: 'Total AP', value: String(summary.total), inline: true },
                         { name: 'Available', value: String(summary.available), inline: true },

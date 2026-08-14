@@ -1,4 +1,4 @@
-const { EmbedBuilder } = require('discord.js');
+const { createEmbed, progressBar } = require('./embedUtils');
 
 /**
  * Presentation helpers for resource embeds. The DB-touching logic
@@ -14,9 +14,7 @@ const { EmbedBuilder } = require('discord.js');
  * @returns {string} Bar like ■■■■□□□□□□
  */
 function createResourceBar(current, max, length = 10) {
-    if (max <= 0) return '□'.repeat(length);
-    const filled = Math.round((current / max) * length);
-    return '■'.repeat(filled) + '□'.repeat(length - filled);
+    return progressBar(current, max, length);
 }
 
 /**
@@ -40,9 +38,8 @@ function createResourceEmbed(playerName, resourceType, oldValue, newValue, maxVa
         show: `${resourceType.emoji} ${resourceType.label}`,
     };
 
-    const embed = new EmbedBuilder()
-        .setColor(resourceType.color)
-        .setTitle(titles[action] || `${resourceType.emoji} ${resourceType.label}`);
+    const theme = resourceType.key === 'asp' ? 'magic' : resourceType.key === 'kap' ? 'karma' : 'economy';
+    const embed = createEmbed(theme).setTitle(titles[action] || `${resourceType.emoji} ${resourceType.label}`);
 
     if (action === 'show') {
         embed.setDescription(`**${playerName}**`).addFields({

@@ -1,7 +1,8 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { getWallet, adjustWallet } = require('../services/economy');
 const { formatCurrency } = require('../utils/economyUtils');
 const { createLogger } = require('../utils/logger');
+const { createEmbed } = require('../utils/embedUtils');
 const log = createLogger('wallet');
 
 const DENOMINATIONS = { DUKATEN: 1000, SILBERTALER: 100, HELLER: 10, KREUZER: 1 };
@@ -55,12 +56,11 @@ module.exports = {
                 .slice(0, 10)
                 .map(
                     row =>
-                        `${row.amount_kreuzer >= 0 ? '+' : ''}${row.amount_kreuzer} K — ${row.description || row.category}`
+                        `${row.amount_kreuzer >= 0 ? '🟢 +' : '🔴 -'}${formatCurrency(Math.abs(row.amount_kreuzer))} · ${row.description || row.category}`
                 );
-            const embed = new EmbedBuilder()
-                .setColor(0xd4af37)
-                .setTitle(`💰 ${wallet.characterName}`)
-                .setDescription(`**${formatCurrency(wallet.balance.totalKreuzer)}**`)
+            const embed = createEmbed('economy')
+                .setTitle(`💰 ${wallet.characterName} — Wallet`)
+                .setDescription(`## ${formatCurrency(wallet.balance.totalKreuzer)}`)
                 .addFields({ name: 'Recent ledger', value: ledger.join('\n') || 'No transactions yet.' });
             return interaction.editReply({ embeds: [embed] });
         } catch (error) {

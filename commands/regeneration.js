@@ -1,6 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { regenerate } = require('../services/resources');
 const { createLogger } = require('../utils/logger');
+const { createEmbed, makeFooter, progressBar } = require('../utils/embedUtils');
 const log = createLogger('regeneration');
 
 module.exports = {
@@ -39,19 +40,14 @@ module.exports = {
                 });
             }
 
-            const embed = new EmbedBuilder()
-                .setColor(0x2ecc71)
+            const embed = createEmbed('success')
                 .setTitle(`🌙 Regenerationsphase — ${characterName}`)
                 .setDescription(`After a period of rest, **${characterName}** recovers energy.`)
-                .setFooter({
-                    text: `Regeneration by ${interaction.user.username}`,
-                    iconURL: interaction.user.avatarURL(),
-                })
+                .setFooter(makeFooter(interaction.user, 'Regeneration by'))
                 .setTimestamp();
 
             for (const r of results) {
-                const filledBlocks = Math.round((r.newValue / r.maxValue) * 10);
-                const resourceBar = '■'.repeat(filledBlocks) + '□'.repeat(10 - filledBlocks);
+                const resourceBar = progressBar(r.newValue, r.maxValue);
                 const modifierDisplay =
                     r.modifier !== 0 ? ` (${r.modifier >= 0 ? '+' : ''}${r.modifier} = ${r.effective})` : '';
 
