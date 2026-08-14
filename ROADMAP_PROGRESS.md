@@ -16,15 +16,16 @@ Last audit: 2026-08-14
 
 ## Current verification baseline
 
-| Check                   | Result         | Evidence / limitation                                                                                                                    |
-| ----------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Pure mechanics tests    | **PASS**       | Wound, combat-effect, supernatural/equipment catalogs, economy, foundation, and advancement suites: 36/36 pass.                          |
-| TypeScript              | **PASS**       | `npx tsc --noEmit`: zero errors through the AP Advancement slice.                                                                        |
-| Full integration suite  | **BLOCKED**    | Current `npm test` discovers 127 tests: 47 pass and 80 live-DB cases fail after `ECONNREFUSED 127.0.0.1:5432`; `.env` remains untouched. |
-| Lint                    | **PASS**       | `npm run lint`: zero errors and 23 existing warnings (two fewer than the starting baseline; no new warnings).                            |
-| Repository formatting   | **KNOWN FAIL** | Pre-existing baseline is 87 files. Only files changed by this goal will be checked/formatted.                                            |
-| Changed-file formatting | **PASS**       | Prettier passes on every formatter-supported file changed through the AP Advancement checkpoint.                                         |
-| Migration               | **PARTIAL**    | Ordered migrations `0001`–`0009` and snapshots generate successfully; clean local execution is blocked by the unavailable Docker daemon. |
+| Check                   | Result         | Evidence / limitation                                                                                                                                       |
+| ----------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Full test gate          | **PASS**       | `npm test` on isolated Netcup PostgreSQL: 130/130 Node API/mechanics tests and 214/214 Jest command/unit tests pass (344 total).                            |
+| TypeScript              | **PASS**       | `npx tsc --noEmit`: zero errors at the final verified revision.                                                                                             |
+| Lint                    | **PASS**       | `npm run lint`: zero errors and 23 pre-existing warnings (two fewer than the starting baseline; no new warnings).                                           |
+| Repository formatting   | **KNOWN FAIL** | Pre-existing baseline is 87 files. Per the execution contract, unrelated files were not reformatted.                                                        |
+| Changed-file formatting | **PASS**       | Prettier passes on all 124 goal-changed files with unsupported formats ignored.                                                                             |
+| Migration               | **PASS**       | A fresh `pgvector/pgvector:pg16` container applied all 10 ordered migration files plus vector SQL; Drizzle reports 34 tables and no schema changes.         |
+| Catalog seed            | **PASS**       | Two consecutive clean-room seed runs succeeded: 59 talents, 14 maneuvers, 461 spells, 353 liturgies, 20 equipment entries, and 967 special abilities.       |
+| Isolation               | **PASS**       | Tests used an ephemeral `codex-dsa-roadmap-tldktn` container and temporary clone; the server's production `dsa-db` container was present and never mutated. |
 
 The scoped Graphify pass found 1,165 DSANewBot nodes, 2,199 relationships, and
 58 labeled communities. The bounded semantic retry produced 50 document nodes,
@@ -50,151 +51,157 @@ Every feature slice must include, where applicable:
 
 #### Wounds and healing
 
-| Item                            | Status      | Current evidence                                                                                                                        | Acceptance criteria / remaining work                                             |
-| ------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Wound tracking separate from LP | **PARTIAL** | Stats/combatant counters synchronize on combat, treatment, and regeneration; negative LeP is preserved for stabilization.               | Execute migrations and live-DB regressions on a clean local PostgreSQL instance. |
-| Wound threshold based on KO     | **PARTIAL** | Player threshold is `floor(KO/2) + modifier`; NPCs accept an explicit threshold; rules and unit tests cover bounds.                     | Execute the generated migrations and combat integration test locally.            |
-| Wound penalties                 | **PARTIAL** | `-1` per wound (cap `-3`) is applied to talent attributes and AT/PA in Discord and service combat paths and displayed in UX.            | Run the live combat/probe regression suite against the migrated database.        |
-| Natural wound healing           | **PARTIAL** | A completed regeneration phase heals one aggregate wound and consumes pending treatment/pain state transactionally.                     | Run the new resources integration regression against the migrated database.      |
-| First aid / wound treatment     | **PARTIAL** | Shared service/API/Discord command implements healing, pain relief, stabilization, bleeding, authorization, audit ledger, and error UX. | Run `tests/api/wounds.test.ts` and migration tests on local PostgreSQL.          |
-| Incapacitation at wound limit   | **PARTIAL** | Three wounds reject attacks and prevent defense; recovery below the limit restores eligibility; UI exposes capability.                  | Complete live combat integration verification.                                   |
+| Item                            | Status   | Current evidence                                                                                                                        | Acceptance criteria / remaining work                              |
+| ------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Wound tracking separate from LP | **DONE** | Stats/combatant counters synchronize on combat, treatment, and regeneration; negative LeP is preserved for stabilization.               | Met: clean migrations and wound/combat/resource regressions pass. |
+| Wound threshold based on KO     | **DONE** | Player threshold is `floor(KO/2) + modifier`; NPCs accept an explicit threshold; rules and unit tests cover bounds.                     | Met: threshold and live combat regressions pass.                  |
+| Wound penalties                 | **DONE** | `-1` per wound (cap `-3`) is applied to talent attributes and AT/PA in Discord and service combat paths and displayed in UX.            | Met: probe and combat regressions pass.                           |
+| Natural wound healing           | **DONE** | A completed regeneration phase heals one aggregate wound and consumes pending treatment/pain state transactionally.                     | Met: live regeneration regression passes.                         |
+| First aid / wound treatment     | **DONE** | Shared service/API/Discord command implements healing, pain relief, stabilization, bleeding, authorization, audit ledger, and error UX. | Met: wound authorization and treatment regressions pass.          |
+| Incapacitation at wound limit   | **DONE** | Three wounds reject attacks and prevent defense; recovery below the limit restores eligibility; UI exposes capability.                  | Met: live action and recovery regressions pass.                   |
 
 #### Conditions and status-effect lifecycle
 
-| Item                                    | Status      | Current evidence                                                                                                                        | Acceptance criteria / remaining work                                                     |
-| --------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Condition/status CRUD commands          | **DONE**    | `/condition` and `/status`, persistent `combatant_conditions` / `combatant_statuses`, command metadata.                                 | Reuse; do not duplicate. Authorization and service reuse are lifecycle follow-ups below. |
-| Poison                                  | **PARTIAL** | Typed DOT/check/AT/PA payloads tick at turn end, synchronize wounds/LP, expire, display, and have pure/live regressions.                | Execute the live combat regression on a clean migrated database.                         |
-| Disease                                 | **PARTIAL** | `krank` supports source-specific escalating damage with a configured cap, duration, display, and DM removal/treatment.                  | Execute lifecycle regressions on a clean database.                                       |
-| Stun / paralysis                        | **PARTIAL** | Condition penalties, level-IV/aggregate incapacitation, round/rest duration, and action enforcement are shared across services.         | Execute the live action/recovery regressions.                                            |
-| Fear / terror                           | **PARTIAL** | Owner/DM Willenskraft resistance decrements Furcht, with wound/condition penalties, source removal, and duration support.               | Execute the live resistance regression.                                                  |
-| Exhaustion / fatigue                    | **PARTIAL** | Überanstrengung applies check penalties and -1/-2 resource regeneration, then recovers through rest-duration lifecycle.                 | Execute the regeneration integration regression.                                         |
-| Buff tracking                           | **PARTIAL** | `combatant_effects` persists numeric combat/check modifiers, prohibitions, source, and duration; restart recovery and UX include them.  | Execute migration and persistence tests.                                                 |
-| Effect duration                         | **PARTIAL** | Validated status/condition/effect durations decrement on their documented turn boundary; rest effects recover during regeneration.      | Execute live lifecycle tests.                                                            |
-| Turn start/end effect ticks             | **PARTIAL** | `advanceTurn()` applies DOT/wounds and expiry transactionally, checks victory after ticks, logs results, and refreshes the mirror.      | Execute live round-transition tests.                                                     |
-| Incapacitation from conditions/statuses | **PARTIAL** | Pain IV, three wounds, level-IV conditions, eight aggregate levels, and direct statuses block the appropriate action/defense paths.     | Execute live action authorization tests.                                                 |
-| Restart recovery                        | **PARTIAL** | Recovery loads all persisted conditions, statuses, and effects into combatants and reconstructs derived display state.                  | Validate with a migrated database restart fixture.                                       |
-| Authorization                           | **PARTIAL** | Session impersonation/add/remove gaps are closed; DM-only effect mutations and owner/DM resistance use shared services for API/Discord. | Execute live forbidden-path regressions.                                                 |
+| Item                                    | Status   | Current evidence                                                                                                                        | Acceptance criteria / remaining work                                                       |
+| --------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Condition/status CRUD commands          | **DONE** | `/condition` and `/status`, persistent `combatant_conditions` / `combatant_statuses`, command metadata.                                 | Met: existing commands are reused and the lifecycle/authorization rows below are complete. |
+| Poison                                  | **DONE** | Typed DOT/check/AT/PA payloads tick at turn end, synchronize wounds/LP, expire, display, and have pure/live regressions.                | Met: clean live combat lifecycle regression passes.                                        |
+| Disease                                 | **DONE** | `krank` supports source-specific escalating damage with a configured cap, duration, display, and DM removal/treatment.                  | Met: lifecycle and authorization coverage passes.                                          |
+| Stun / paralysis                        | **DONE** | Condition penalties, level-IV/aggregate incapacitation, round/rest duration, and action enforcement are shared across services.         | Met: action/recovery coverage passes.                                                      |
+| Fear / terror                           | **DONE** | Owner/DM Willenskraft resistance decrements Furcht, with wound/condition penalties, source removal, and duration support.               | Met: resistance and authorization coverage passes.                                         |
+| Exhaustion / fatigue                    | **DONE** | Überanstrengung applies check penalties and -1/-2 resource regeneration, then recovers through rest-duration lifecycle.                 | Met: regeneration coverage passes.                                                         |
+| Buff tracking                           | **DONE** | `combatant_effects` persists numeric combat/check modifiers, prohibitions, source, and duration; restart recovery and UX include them.  | Met: migration/persistence coverage passes.                                                |
+| Effect duration                         | **DONE** | Validated status/condition/effect durations decrement on their documented turn boundary; rest effects recover during regeneration.      | Met: round/rest lifecycle coverage passes.                                                 |
+| Turn start/end effect ticks             | **DONE** | `advanceTurn()` applies DOT/wounds and expiry transactionally, checks victory after ticks, logs results, and refreshes the mirror.      | Met: live round-transition coverage passes.                                                |
+| Incapacitation from conditions/statuses | **DONE** | Pain IV, three wounds, level-IV conditions, eight aggregate levels, and direct statuses block the appropriate action/defense paths.     | Met: action/defense authorization coverage passes.                                         |
+| Restart recovery                        | **DONE** | Recovery loads all persisted conditions, statuses, and effects into combatants and reconstructs derived display state.                  | Met: persisted recovery paths and component tests pass.                                    |
+| Authorization                           | **DONE** | Session impersonation/add/remove gaps are closed; DM-only effect mutations and owner/DM resistance use shared services for API/Discord. | Met: forbidden-path and impersonation regressions pass.                                    |
 
 #### Combat completeness
 
-| Item                     | Status      | Current evidence                                                                                                                                        | Acceptance criteria / remaining work                       |
-| ------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| Multiple-defense penalty | **PARTIAL** | Persisted counters apply -3 per prior defense, -2 with Meisterparade, reset each round, display, and have deterministic/live tests.                     | Execute live round tests.                                  |
-| Called shots             | **PARTIAL** | Melee/ranged target-zone inputs, modifiers, humanoid tables, hit-zone persistence, Selbstbeherrschung wound effects, and UX are implemented.            | Execute live attack regressions.                           |
-| Disarm                   | **PARTIAL** | Catalog/prerequisite validation and transactional eligible-weapon unequip behavior are implemented.                                                     | Execute live maneuver regression.                          |
-| Trip / knockdown         | **PARTIAL** | Size/technique restrictions, Liegend application, penalties, and stand-up action/API/Discord UX are implemented.                                        | Execute live maneuver/action regressions.                  |
-| Grappling                | **PARTIAL** | Haltegriff applies Fixiert/Eingeengt, restricts the grappler, and exposes a KK escape action with logs.                                                 | Execute live maneuver/action regressions.                  |
-| Two-weapon fighting      | **PARTIAL** | Two one-handed weapons, training/off-hand penalties, two targets, separate defenses, first-botch cancellation, service/API/Discord UX, and tests exist. | Execute compound live regression.                          |
-| Opportunity attacks      | **PARTIAL** | Persisted, unopposed AT-4 reactions are consumed on use and expire at the round boundary; failed charge grants them.                                    | Execute lifecycle regression.                              |
-| Charge attack            | **PARTIAL** | Sturmangriff validates 4..GS distance/prerequisites, applies AT/TP rules, and grants the failure reaction.                                              | Execute live maneuver regression.                          |
-| Full defense stance      | **PARTIAL** | Learned Verteidigungshaltung spends the action, persists +4 PA/action prohibition, and expires at next turn start.                                      | Execute live stance regression.                            |
-| Ranged combat            | **PARTIAL** | Persisted technique/range/reload/hand data, range bands, cover, reload actions, service/API/Discord inputs/display, migration, and tests exist.         | Execute migration/live regressions.                        |
-| Combat maneuver effects  | **PARTIAL** | Catalog includes committed core options, list/detail APIs/commands, learned/prerequisite checks, shared effect handlers, and rules documentation.       | Execute seeded catalog/live action regressions.            |
-| NPC skill actions        | **PARTIAL** | DM maneuver/target menus now call the shared attack service; the placeholder path is removed and restart state is preserved.                            | Execute Discord component regression with a live database. |
+| Item                     | Status   | Current evidence                                                                                                                                        | Acceptance criteria / remaining work                  |
+| ------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Multiple-defense penalty | **DONE** | Persisted counters apply -3 per prior defense, -2 with Meisterparade, reset each round, display, and have deterministic/live tests.                     | Met: live round coverage passes.                      |
+| Called shots             | **DONE** | Melee/ranged target-zone inputs, modifiers, humanoid tables, hit-zone persistence, Selbstbeherrschung wound effects, and UX are implemented.            | Met: attack and component coverage passes.            |
+| Disarm                   | **DONE** | Catalog/prerequisite validation and transactional eligible-weapon unequip behavior are implemented.                                                     | Met: maneuver coverage passes.                        |
+| Trip / knockdown         | **DONE** | Size/technique restrictions, Liegend application, penalties, and stand-up action/API/Discord UX are implemented.                                        | Met: maneuver/action coverage passes.                 |
+| Grappling                | **DONE** | Haltegriff applies Fixiert/Eingeengt, restricts the grappler, and exposes a KK escape action with logs.                                                 | Met: maneuver/action coverage passes.                 |
+| Two-weapon fighting      | **DONE** | Two one-handed weapons, training/off-hand penalties, two targets, separate defenses, first-botch cancellation, service/API/Discord UX, and tests exist. | Met: compound live regression passes.                 |
+| Opportunity attacks      | **DONE** | Persisted, unopposed AT-4 reactions are consumed on use and expire at the round boundary; failed charge grants them.                                    | Met: lifecycle coverage passes.                       |
+| Charge attack            | **DONE** | Sturmangriff validates 4..GS distance/prerequisites, applies AT/TP rules, and grants the failure reaction.                                              | Met: maneuver coverage passes.                        |
+| Full defense stance      | **DONE** | Learned Verteidigungshaltung spends the action, persists +4 PA/action prohibition, and expires at next turn start.                                      | Met: stance lifecycle coverage passes.                |
+| Ranged combat            | **DONE** | Persisted technique/range/reload/hand data, range bands, cover, reload actions, service/API/Discord inputs/display, migration, and tests exist.         | Met: migration/live inventory-combat coverage passes. |
+| Combat maneuver effects  | **DONE** | Catalog includes committed core options, list/detail APIs/commands, learned/prerequisite checks, shared effect handlers, and rules documentation.       | Met: seeded catalog/action coverage passes.           |
+| NPC skill actions        | **DONE** | DM maneuver/target menus call the shared attack service; restart state is preserved.                                                                    | Met: Discord component and combat coverage passes.    |
 
 ### Priority 2 — Character Systems
 
 #### Magic
 
-| Item                           | Status      | Current evidence                                                                                                                                                | Acceptance criteria / remaining work                            |
-| ------------------------------ | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Spells table/catalog           | **PARTIAL** | `spells` plus source metadata/effects, idempotent local Regelwiki import (467 parsed rows; 461 canonical entries), API/Discord browse/detail, and parser tests. | Execute migration/seed/catalog regressions on clean PostgreSQL. |
-| AsP tracking                   | **DONE**    | Existing `/asp`/resource/regeneration paths are reused by transactional casting and permanent costs; supernatural help is registered.                           | No remaining Magic-slice work.                                  |
-| Spell casting probes           | **PARTIAL** | Learned FtW, 3d20/QS, explicit/wound/condition modifiers, failed half cost, turn restrictions, audit history, API/Discord UX.                                   | Execute deterministic live-DB casting regressions.              |
-| Damage/healing/utility effects | **PARTIAL** | Typed damage/healing/buff/condition/status effects reuse combat/wound/resource state; every other accepted ability persists narrative utility.                  | Execute effect persistence/lifecycle regressions.               |
-| Schools / traditions           | **PARTIAL** | Persisted profile, normalized distribution/aspects, general-ability rules, and case-safe tradition compatibility are enforced.                                  | Execute profile/compatibility regressions.                      |
-| Learning requirements          | **PARTIAL** | Tradition/AP/ownership checks, duplicate prevention, learned relation, and AP ledger spending are atomic.                                                       | Execute live duplicate/insufficient-AP regressions.             |
-| Ritual magic                   | **PARTIAL** | Ritual catalog types, asynchronous pending/completion/cancellation state, concentration lock, half-cost interruption, authorization, and UX.                    | Execute live lifecycle/concurrency regressions.                 |
-| Spell duration                 | **PARTIAL** | Persisted supernatural effect instances, timestamp expiry, shared round ticking, combat-effect synchronization, restart-visible history.                        | Execute live duration/restart regressions.                      |
+| Item                           | Status   | Current evidence                                                                                                                                                | Acceptance criteria / remaining work                |
+| ------------------------------ | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| Spells table/catalog           | **DONE** | `spells` plus source metadata/effects, idempotent local Regelwiki import (467 parsed rows; 461 canonical entries), API/Discord browse/detail, and parser tests. | Met: clean migration and two idempotent seeds pass. |
+| AsP tracking                   | **DONE** | Existing `/asp`/resource/regeneration paths are reused by transactional casting and permanent costs; supernatural help is registered.                           | No remaining Magic-slice work.                      |
+| Spell casting probes           | **DONE** | Learned FtW, 3d20/QS, explicit/wound/condition modifiers, failed half cost, turn restrictions, audit history, API/Discord UX.                                   | Met: deterministic live casting coverage passes.    |
+| Damage/healing/utility effects | **DONE** | Typed damage/healing/buff/condition/status effects reuse combat/wound/resource state; every other accepted ability persists narrative utility.                  | Met: effect persistence/lifecycle coverage passes.  |
+| Schools / traditions           | **DONE** | Persisted profile, normalized distribution/aspects, general-ability rules, and case-safe tradition compatibility are enforced.                                  | Met: profile/compatibility coverage passes.         |
+| Learning requirements          | **DONE** | Tradition/AP/ownership checks, duplicate prevention, learned relation, and AP ledger spending are atomic.                                                       | Met: duplicate/insufficient-AP coverage passes.     |
+| Ritual magic                   | **DONE** | Ritual catalog types, asynchronous pending/completion/cancellation state, concentration lock, half-cost interruption, authorization, and UX.                    | Met: lifecycle/cancellation coverage passes.        |
+| Spell duration                 | **DONE** | Persisted supernatural effect instances, timestamp expiry, shared round ticking, combat-effect synchronization, restart-visible history.                        | Met: duration/persistence coverage passes.          |
 
 #### Karma
 
-| Item                        | Status      | Current evidence                                                                                                                                              | Acceptance criteria / remaining work                            |
-| --------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Liturgies table/catalog     | **PARTIAL** | `liturgies` plus local source metadata, aspects/effects, idempotent import (363 parsed rows; 353 canonical entries), API/Discord browse/detail, parser tests. | Execute migration/seed/catalog regressions on clean PostgreSQL. |
-| KaP tracking                | **DONE**    | Existing `/kap`/resource/regeneration paths are reused by liturgies, blessings, ceremonies, permanent costs, and miracles; help is complete.                  | No remaining Karma-slice work.                                  |
-| Blessed actions             | **PARTIAL** | Learned liturgy/ceremony/blessing execution shares probes, costs, targets, typed effects, pending lifecycle, authorization, and UX.                           | Execute live casting/effect regressions.                        |
-| Religious traditions / gods | **PARTIAL** | Profile persists blessed tradition, deity, favored talents, and aspects; learning/casting enforce compatible tradition and deity.                             | Execute live compatibility regressions.                         |
-| Miracle mechanics           | **PARTIAL** | Documented 4-KaP favored talent/AT/PA actions, equipped favored-technique checks, atomic spend, consumption, and round-boundary expiry.                       | Execute live talent/combat miracle regressions.                 |
+| Item                        | Status   | Current evidence                                                                                                                                              | Acceptance criteria / remaining work                |
+| --------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| Liturgies table/catalog     | **DONE** | `liturgies` plus local source metadata, aspects/effects, idempotent import (363 parsed rows; 353 canonical entries), API/Discord browse/detail, parser tests. | Met: clean migration and two idempotent seeds pass. |
+| KaP tracking                | **DONE** | Existing `/kap`/resource/regeneration paths are reused by liturgies, blessings, ceremonies, permanent costs, and miracles; help is complete.                  | No remaining Karma-slice work.                      |
+| Blessed actions             | **DONE** | Learned liturgy/ceremony/blessing execution shares probes, costs, targets, typed effects, pending lifecycle, authorization, and UX.                           | Met: live casting/effect coverage passes.           |
+| Religious traditions / gods | **DONE** | Profile persists blessed tradition, deity, favored talents, and aspects; learning/casting enforce compatible tradition and deity.                             | Met: live compatibility coverage passes.            |
+| Miracle mechanics           | **DONE** | Documented 4-KaP favored talent/AT/PA actions, equipped favored-technique checks, atomic spend, consumption, and round-boundary expiry.                       | Met: favored-talent and combat coverage passes.     |
 
 #### AP-based advancement
 
-| Item                   | Status      | Current evidence                                                                                                                                                                                                                                                       | Acceptance criteria / remaining work                                  |
-| ---------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| AP tracking            | **PARTIAL** | Owner-scoped awards, totals/balances, 50-entry summary, immutable actor ledger, `/advance`, HTTP API, stat display, validation, and atomic tests are implemented.                                                                                                      | Execute migration and live ledger/rollback regressions on PostgreSQL. |
-| Level-up mechanics     | **PARTIAL** | DSA's no-level AP purchase model, target-value tables, atomic one-step operations, error UX, and rules decisions are implemented and documented.                                                                                                                       | Execute live service/API regressions on the migrated database.        |
-| Attribute advancement  | **PARTIAL** | All eight attributes raise one point with target-value cost, atomic ledger spend, validation, and KK equipment resynchronization.                                                                                                                                      | Execute live cost/rollback regression.                                |
-| Learn talents          | **PARTIAL** | All 59 seeded DSA talents are always active at FW 0; migration backfills existing characters and deduplicates legacy relations while preserving highest FW.                                                                                                            | Execute migration/backfill regression.                                |
-| Raise FtW              | **PARTIAL** | Talent A–D costs, highest-participating-attribute +2 cap, supernatural FW costs/caps, atomic persistence, API/Discord autocomplete, and pure/live tests exist.                                                                                                         | Execute live cap/cost/rollback regressions.                           |
-| Learn spells/liturgies | **PARTIAL** | Existing atomic activation is joined by spell/ritual/liturgy/ceremony FW raises; FW 14 cap is enforced pending feature/aspect-knowledge representation.                                                                                                                | Execute live learning/improvement regressions.                        |
-| Special abilities      | **PARTIAL** | Fourteen executable combat abilities plus 967 canonical fixed-cost magical/karmic Regelwiki entries have unique ownership, atomic AP learning, source prerequisites, automatic attribute/tradition checks, and explicit table confirmation for unmodeled requirements. | Execute seed/prerequisite/duplicate regressions.                      |
+| Item                   | Status   | Current evidence                                                                                                                                                                                                                                                       | Acceptance criteria / remaining work              |
+| ---------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| AP tracking            | **DONE** | Owner-scoped awards, totals/balances, 50-entry summary, immutable actor ledger, `/advance`, HTTP API, stat display, validation, and atomic tests are implemented.                                                                                                      | Met: live ledger/rollback coverage passes.        |
+| Level-up mechanics     | **DONE** | DSA's no-level AP purchase model, target-value tables, atomic one-step operations, error UX, and rules decisions are implemented and documented.                                                                                                                       | Met: live service/API coverage passes.            |
+| Attribute advancement  | **DONE** | All eight attributes raise one point with target-value cost, atomic ledger spend, validation, and KK equipment resynchronization.                                                                                                                                      | Met: cost/rollback coverage passes.               |
+| Learn talents          | **DONE** | All 59 seeded DSA talents are always active at FW 0; migration backfills existing characters and deduplicates legacy relations while preserving highest FW.                                                                                                            | Met: clean seed/backfill behavior is verified.    |
+| Raise FtW              | **DONE** | Talent A–D costs, highest-participating-attribute +2 cap, supernatural FW costs/caps, atomic persistence, API/Discord autocomplete, and pure/live tests exist.                                                                                                         | Met: cap/cost/rollback coverage passes.           |
+| Learn spells/liturgies | **DONE** | Existing atomic activation is joined by spell/ritual/liturgy/ceremony FW raises; FW 14 cap is enforced pending feature/aspect-knowledge representation.                                                                                                                | Met: learning/improvement coverage passes.        |
+| Special abilities      | **DONE** | Fourteen executable combat abilities plus 967 canonical fixed-cost magical/karmic Regelwiki entries have unique ownership, atomic AP learning, source prerequisites, automatic attribute/tradition checks, and explicit table confirmation for unmodeled requirements. | Met: seed/prerequisite/duplicate coverage passes. |
 
 ### Priority 3 — Equipment & Economy
 
 #### Economy
 
-| Item              | Status      | Current evidence                                                                                                                          | Acceptance criteria / remaining work                                                      |
-| ----------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Four currencies   | **PARTIAL** | Kreuzer-backed non-negative wallets, four-way conversion/display, immutable ledger, API, and `/wallet` exist.                             | Execute wallet migration and live ledger regressions on clean PostgreSQL.                 |
-| Buy / sell        | **PARTIAL** | `/shop` and API perform atomic catalog materialization/payment and unequipped half-value sales with validation.                           | Execute purchase/sale rollback and authorization regressions on clean PostgreSQL.         |
-| Price lists       | **PARTIAL** | Source-enriched, idempotently seeded 20-entry core catalog stores price, weight, equipment, armor, shield, ranged, and provenance fields. | Execute `db:seed` and catalog idempotency tests on a freshly migrated database.           |
-| Loot distribution | **PARTIAL** | Tiered deterministic planner plus ended-combat DM generation, participant-scoped view, transactional awards, API, and `/loot` exist.      | Execute DM/participant/quantity/distribution live regressions on clean PostgreSQL.        |
-| Player trade      | **PARTIAL** | Persisted offer/accept/decline/cancel/expiry flow revalidates and locks funds/assets before an atomic swap; API and `/trade` exist.       | Execute concurrency, insufficient-funds, expiry, and ownership regressions on PostgreSQL. |
+| Item              | Status   | Current evidence                                                                                                                          | Acceptance criteria / remaining work                     |
+| ----------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Four currencies   | **DONE** | Kreuzer-backed non-negative wallets, four-way conversion/display, immutable ledger, API, and `/wallet` exist.                             | Met: live wallet ledger coverage passes.                 |
+| Buy / sell        | **DONE** | `/shop` and API perform atomic catalog materialization/payment and unequipped half-value sales with validation.                           | Met: purchase/sale transaction coverage passes.          |
+| Price lists       | **DONE** | Source-enriched, idempotently seeded 20-entry core catalog stores price, weight, equipment, armor, shield, ranged, and provenance fields. | Met: two clean-room seed runs store 20 entries.          |
+| Loot distribution | **DONE** | Tiered deterministic planner plus ended-combat DM generation, participant-scoped view, transactional awards, API, and `/loot` exist.      | Met: DM/participant/distribution coverage passes.        |
+| Player trade      | **DONE** | Persisted offer/accept/decline/cancel/expiry flow revalidates and locks funds/assets before an atomic swap; API and `/trade` exist.       | Met: ownership/revalidation/atomic-swap coverage passes. |
 
 #### Armor and complete equipment
 
-| Item                           | Status      | Current evidence                                                                                                                         | Acceptance criteria / remaining work                                         |
-| ------------------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Armor table/items              | **PARTIAL** | Catalog-linked armor items persist RS/BE/value/weight/slot/equip state; CRUD, stack splitting, migration, API, and Discord UX exist.     | Execute clean migration and armor equip/conflict regressions.                |
-| RS and BE                      | **PARTIAL** | Equipment synchronization derives total RS from natural plus worn armor and derives BE/load Belastung after every relevant mutation.     | Execute live derivation and legacy-RS migration regressions.                 |
-| Armor slots                    | **PARTIAL** | Ten validated body slots replace conflicts atomically; seeded armor/clothing uses BODY/HEAD/BACK/HANDS/FEET.                             | Execute item stack-split and slot-conflict regressions.                      |
-| Shield mechanics               | **PARTIAL** | Seeded shields carry shield technique, weight/value, AT modifier, and doubled active PA bonus per the local shield rule.                 | Execute shield purchase/equip/combat regressions on PostgreSQL.              |
-| Encumbrance                    | **PARTIAL** | Armor BE plus excess carried weight derives Belastung, which affects AT/PA/initiative/GS/talent checks and incapacitates at IV.          | Execute combat/probe integration regressions with equipped armor/load.       |
-| Carrying capacity              | **PARTIAL** | Gram-safe aggregation implements KK × 2 Stein capacity and one Belastung per full additional 4 Stein; `/equipment show` displays totals. | Execute inventory mutation and KK-change live regressions.                   |
-| Clothing / non-armor equipment | **PARTIAL** | Catalog and custom items support CLOTHING/GEAR/CONSUMABLE types, values, weights, body slots, equip state, trade, sale, and loot.        | Execute catalog/custom-item integration regressions.                         |
-| Equipment weight               | **PARTIAL** | Integer grams persist on items/weapons, aggregate by quantity, exclude only the one worn armor unit, and drive load state.               | Execute migration and aggregate-weight live regressions.                     |
-| Full slot system               | **PARTIAL** | Body equipment uses ten validated slots; weapons/shields retain ADAPTIVE/OFFENSE/DEFENSE hand semantics and all surfaces expose state.   | Execute mixed equipment/weapon conflict and restart persistence regressions. |
+| Item                           | Status   | Current evidence                                                                                                                         | Acceptance criteria / remaining work                   |
+| ------------------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Armor table/items              | **DONE** | Catalog-linked armor items persist RS/BE/value/weight/slot/equip state; CRUD, stack splitting, migration, API, and Discord UX exist.     | Met: clean migration and equip/conflict coverage pass. |
+| RS and BE                      | **DONE** | Equipment synchronization derives total RS from natural plus worn armor and derives BE/load Belastung after every relevant mutation.     | Met: live derivation coverage passes.                  |
+| Armor slots                    | **DONE** | Ten validated body slots replace conflicts atomically; seeded armor/clothing uses BODY/HEAD/BACK/HANDS/FEET.                             | Met: stack/slot coverage passes.                       |
+| Shield mechanics               | **DONE** | Seeded shields carry shield technique, weight/value, AT modifier, and doubled active PA bonus per the local shield rule.                 | Met: catalog/equipment/combat coverage passes.         |
+| Encumbrance                    | **DONE** | Armor BE plus excess carried weight derives Belastung, which affects AT/PA/initiative/GS/talent checks and incapacitates at IV.          | Met: combat/probe integration coverage passes.         |
+| Carrying capacity              | **DONE** | Gram-safe aggregation implements KK × 2 Stein capacity and one Belastung per full additional 4 Stein; `/equipment show` displays totals. | Met: inventory and advancement coverage passes.        |
+| Clothing / non-armor equipment | **DONE** | Catalog and custom items support CLOTHING/GEAR/CONSUMABLE types, values, weights, body slots, equip state, trade, sale, and loot.        | Met: catalog/custom-item coverage passes.              |
+| Equipment weight               | **DONE** | Integer grams persist on items/weapons, aggregate by quantity, exclude only the one worn armor unit, and drive load state.               | Met: migration/aggregate coverage passes.              |
+| Full slot system               | **DONE** | Body equipment uses ten validated slots; weapons/shields retain ADAPTIVE/OFFENSE/DEFENSE hand semantics and all surfaces expose state.   | Met: mixed equipment/component coverage passes.        |
+
+### Completion evidence map
+
+Every DONE inventory row above belongs to one of these verified vertical slices.
+The map links each slice to its persistence, implementation, rules record, and
+executable evidence; command registration and `/help` metadata are covered by the
+final command serialization/unit gate.
+
+| Slice                       | Persistence and migrations                                                    | Service, API, and Discord implementation                                                                                                                   | Rules documentation                                                                      | Tests                                                                                                            |
+| --------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Wounds and healing          | `db/schema.ts`; `0001_wide_wrecking_crew.sql`–`0003_mighty_penance.sql`       | `services/wounds.ts`, `services/resources.ts`, `services/combat.ts`, `api/routes/wounds.ts`, `/treat-wounds`                                               | `docs/wound-system-rules.md`, `docs/heilkunde-wunden.md`                                 | `wound-utils.test.ts`, `wounds.test.ts`, `resources.test.ts`, `combat.test.ts`                                   |
+| Combat and effects          | `db/schema.ts`; `0004_remarkable_crystal.sql`, `0005_simple_madame_hydra.sql` | `services/combat.ts`, `services/combatEffects.ts`, `services/maneuvers.ts`, combat/maneuver APIs and Discord commands/components                           | `docs/combat-rules-decisions.md` plus the local maneuver and condition/status references | `combat-effects.test.ts`, `combat.test.ts`, `combatUtils.test.js`, `combatComponents.test.js`                    |
+| Magic and Karma             | `db/schema.ts`; `0006_freezing_klaw.sql`                                      | `services/supernatural.ts`, `api/routes/supernatural.ts`, catalog seeds, and supernatural Discord commands                                                 | `docs/supernatural-rules-decisions.md`                                                   | `supernatural-catalog.test.ts`, `catalog-seed.test.ts`, `supernatural.test.ts`                                   |
+| Economy and equipment       | `db/schema.ts`; `0007_light_stick.sql`                                        | `services/economy.ts`, `services/equipment.ts`, `services/trades.ts`, `services/loot.ts`, economy API, `/wallet`, `/shop`, `/equipment`, `/trade`, `/loot` | `docs/economy-equipment-rules-decisions.md`                                              | `economy-utils.test.ts`, `economy.test.ts`, `inventory.test.ts`, combat integration tests                        |
+| AP advancement              | `db/schema.ts`; `0008_new_mentor.sql`, `0009_faithful_vance_astro.sql`        | `services/advancement.ts`, `api/routes/advancement.ts`, `/advance`, AP-backed `/edit-skills`, special-ability seed                                         | `docs/advancement-rules-decisions.md`                                                    | `advancement-utils.test.ts`, `advancement.test.ts`, `special-ability-catalog.test.ts`, `catalog-seed.test.ts`    |
+| Existing/reconciled systems | `0000_init.sql` and the complete ordered chain through `0009`                 | resources, character/talent/inventory/rules APIs; command metadata, registration, `/help`, and `/regel`                                                    | `ROADMAP.md`, `COMMAND_AUDIT.md`, this ledger                                            | `foundation.test.ts`, `characters.test.ts`, `talents.test.ts`, `rules.test.ts`, `regel.test.js`, transform tests |
 
 ### COMMAND_AUDIT reconciliation
 
-| Item                        | Status      | Evidence / action                                                                                                                                     |
-| --------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Tier 0 command naming       | **STALE**   | Actual commands are already `/create-character`, `/probe`, `/show-mob`, and `/edit-skills`; no rename is needed.                                      |
-| Tier 1 CRUD gaps            | **DONE**    | `/edit-weapon`, `/edit-item`, and `/delete-mob` exist.                                                                                                |
-| Tier 2 resources/conditions | **DONE**    | SchP, AsP, KaP, condition/status CRUD, regeneration, and displays exist; lifecycle/help gaps are tracked in their owning slices.                      |
-| `/regel` availability       | **STALE**   | `commands/regel.js` and tests already exist despite older guidance saying the vector DB was not exposed.                                              |
-| Loot / treasure tables      | **PARTIAL** | `/loot` and authenticated API implement tiered ended-combat pools, DM authorization, participant checks, and atomic awards; live DB proof is blocked. |
-| Combat log command          | **PARTIAL** | `/combat-log` and `GET /combat/log` return the latest active or ended channel session; clean-DB integration remains unverified.                       |
-| Maneuver library commands   | **PARTIAL** | `/list-maneuvers`, `/show-maneuver`, and `/api/maneuvers` reuse the seeded catalog; seeded live-DB verification remains blocked.                      |
-| Tier 4                      | **BLOCKED** | Explicitly out of scope for this goal; no implementation will be attempted.                                                                           |
+| Item                        | Status      | Evidence / action                                                                                                                                  |
+| --------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tier 0 command naming       | **STALE**   | Actual commands are already `/create-character`, `/probe`, `/show-mob`, and `/edit-skills`; no rename is needed.                                   |
+| Tier 1 CRUD gaps            | **DONE**    | `/edit-weapon`, `/edit-item`, and `/delete-mob` exist.                                                                                             |
+| Tier 2 resources/conditions | **DONE**    | SchP, AsP, KaP, condition/status CRUD, regeneration, and displays exist; lifecycle/help gaps are tracked in their owning slices.                   |
+| `/regel` availability       | **STALE**   | `commands/regel.js` and tests already exist despite older guidance saying the vector DB was not exposed.                                           |
+| Loot / treasure tables      | **DONE**    | `/loot` and authenticated API implement tiered ended-combat pools, DM authorization, participant checks, and atomic awards; live regressions pass. |
+| Combat log command          | **DONE**    | `/combat-log` and `GET /combat/log` return the latest active or ended channel session; command/unit and live combat tests pass.                    |
+| Maneuver library commands   | **DONE**    | `/list-maneuvers`, `/show-maneuver`, and `/api/maneuvers` reuse the seeded catalog; seed and command tests pass.                                   |
+| Tier 4                      | **BLOCKED** | Explicitly out of scope for this goal; no implementation will be attempted.                                                                        |
 
 ## Checkpoints, dependencies, and exit criteria
 
-| Checkpoint                     | State       | Dependencies                                                                                   | Exit criteria                                                                                                                          |
-| ------------------------------ | ----------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| 0. Audit and ledger            | **DONE**    | Direct code/docs/schema/test inspection plus healthy structural/semantic Graphify evidence.    | Inventory classifies every in-scope item and reconciles stale roadmap/audit claims.                                                    |
-| 1. Wounds and healing          | **BLOCKED** | Implementation and non-DB gates pass; isolated PostgreSQL remains unavailable.                 | Clean migration and live-DB combat/resource/treatment regressions are the only remaining wound-checkpoint evidence.                    |
-| 2. Combat and status lifecycle | **BLOCKED** | Implementation/static gates pass; isolated PostgreSQL remains unavailable.                     | Clean migrations plus live combat/status/inventory regressions are the only remaining checkpoint evidence.                             |
-| 3. Magic and Karma             | **BLOCKED** | Implementation and non-DB gates pass; isolated PostgreSQL remains unavailable.                 | Clean migration/seed plus live casting, duration, interruption, learning, and miracle regressions are the only remaining evidence.     |
-| 4. Economy and equipment       | **BLOCKED** | Implementation and non-DB gates pass; isolated PostgreSQL remains unavailable.                 | Clean migration/seed plus wallet/shop/trade/loot/equipment authorization and transaction regressions are the only remaining evidence.  |
-| 5. AP advancement              | **BLOCKED** | Implementation and non-DB gates pass; isolated PostgreSQL remains unavailable.                 | Clean migration/seed plus live AP grant, cost, cap, prerequisite, duplicate, and rollback regressions are the only remaining evidence. |
-| 6. Final reconciliation        | **BLOCKED** | Roadmap/audit reconciliation and static gates pass; working Docker daemon remains unavailable. | Clean migration/seed execution and the full live integration pass are the only remaining stopping-condition evidence.                  |
+| Checkpoint                     | State    | Dependencies                                                                                | Exit criteria                                                                           |
+| ------------------------------ | -------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| 0. Audit and ledger            | **DONE** | Direct code/docs/schema/test inspection plus healthy structural/semantic Graphify evidence. | Inventory classifies every in-scope item and reconciles stale roadmap/audit claims.     |
+| 1. Wounds and healing          | **DONE** | Wound schema/service/API/Discord/docs/tests are complete.                                   | Clean migration and wound/combat/resource/treatment regressions pass.                   |
+| 2. Combat and status lifecycle | **DONE** | Combat/effect persistence, services, UX, metadata, docs, and tests complete.                | Clean migrations plus live combat/status/inventory and component regressions pass.      |
+| 3. Magic and Karma             | **DONE** | Catalogs, profiles, casting, lifecycle, miracles, UX, docs, and tests complete.             | Clean seed plus live casting, duration, cancellation, learning, and miracle tests pass. |
+| 4. Economy and equipment       | **DONE** | Persistence, transactions, derived state, API/Discord UX, docs, and tests complete.         | Clean seed plus wallet/trade/loot/equipment tests pass.                                 |
+| 5. AP advancement              | **DONE** | AP ledger and all committed purchase paths, UX, docs, and tests complete.                   | Clean seed plus grant, cost, cap, prerequisite, duplicate, and rollback tests pass.     |
+| 6. Final reconciliation        | **DONE** | Roadmap/audit/help/metadata/migration/test evidence is reconciled.                          | Every in-scope stopping condition is verified at the pushed revision.                   |
 
 ## External blockers
 
-- **Clean Docker database:** Docker CLI 28.3.3 is installed, but the default
-  `npipe:////./pipe/docker_engine` endpoint does not exist and no Docker Desktop,
-  Docker/Compose plugin or standalone Compose binary, Docker service, Podman,
-  PostgreSQL server, local port-5432 listener, or WSL distribution is available.
-  The configured `DATABASE_URL` is remote and is intentionally not used for tests
-  or migrations. Code work and non-DB verification continue; clean migration/full
-  integration evidence remains blocked until a local Docker daemon and Compose are
-  available.
-- **Blocked-audit recurrence:** The same missing local runtime has now been
-  independently confirmed on the original goal turn and two consecutive goal
-  continuations. No safe in-scope work can produce the required clean migration or
-  live integration evidence without that external state change.
+None. The user authorized isolated Netcup testing, which resolved the unavailable
+local-Docker blocker without touching the production database or container.
 
 ## Change log
 
@@ -354,3 +361,29 @@ Every feature slice must include, where applicable:
 - This is the third consecutive goal turn with the identical external blocker.
   Clean migration, seed, and live integration proof cannot proceed without a local
   Docker/PostgreSQL installation; remote mutation remains intentionally excluded.
+
+### 2026-08-14 — Netcup clean-room completion
+
+- User authorization enabled testing on Netcup. Created a temporary clone and an
+  isolated `pgvector/pgvector:pg16` container with an in-memory data directory,
+  no published port, and no shared production volume. The existing production
+  `dsa-db` container remained running and was not mutated.
+- A fresh initialization applied all 10 migrations (`0000`–`0009`), installed
+  pgvector, applied the rules-vector SQL, and produced all 34 Drizzle tables.
+  `npm run db:generate` then reported no schema changes.
+- Fixed source-catalog conflicts found by the first clean seed. The seed now
+  collapses semantic URL aliases before upsert, rejects divergent supernatural
+  IDs, and preserves the two distinct `Astralraub` abilities under stable unique
+  IDs. Two consecutive seeds succeeded with 59 talents, 14 maneuvers, 461 spells,
+  353 liturgies, 20 equipment entries, and 967 special abilities.
+- Removed the import-time OpenAI credential requirement, corrected the DSA 4
+  `Athletik` test fixture to canonical DSA 5 `Heilkunde: Wunden`, serialized the
+  shared-database API test files, and aligned `/regel` unit mocks with the service
+  boundary. `npm test` now includes both test runners.
+- Final verification at code revision `c775e469c5f7f9d8fa452a341a54430c756bb929`:
+  130/130 API/mechanics tests and 214/214 command/unit tests pass; TypeScript and
+  Drizzle generation pass; lint has zero errors and 23 pre-existing warnings; Git
+  whitespace checks and Prettier on all 124 goal-changed files pass.
+- `ROADMAP.md` has no unchecked in-scope item. Its remaining unchecked items are
+  confined to the explicitly excluded Nice-to-Have sections. The current
+  inventory and checkpoints above are DONE, with no external blocker remaining.

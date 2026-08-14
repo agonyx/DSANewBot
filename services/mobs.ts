@@ -85,7 +85,7 @@ export async function updateMob(_ctx: Ctx, input: { id: number; patch: Record<st
         }
         patch[key] = value;
     }
-    // Nothing editable left (e.g. a patch of only-unknown columns) → no-op.
+    // A patch containing no editable fields leaves the existing template unchanged.
     if (Object.keys(patch).length === 0) {
         return getMobById(_ctx, input.id);
     }
