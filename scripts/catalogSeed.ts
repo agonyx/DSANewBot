@@ -3,6 +3,7 @@ import path from 'node:path';
 import { sql } from 'drizzle-orm';
 import { db } from '../db';
 import { liturgies, spells } from '../db/schema';
+import { canonicalizeCatalogRows } from '../utils/catalogSeedUtils';
 import { parseCatalogAbility, type RegelwikiAbility } from '../utils/supernaturalCatalogUtils';
 
 const DATA_ROOT = path.resolve(__dirname, '../DSA5WikiScraper/dsa_scraper_v3/data/json');
@@ -22,14 +23,22 @@ function chunks<T>(rows: T[], size = 100): T[][] {
 
 export async function seedSupernaturalCatalogs() {
     const [magicSource, karmaSource] = await Promise.all([loadSource('magic.json'), loadSource('götterwirken.json')]);
-    const magicRows = magicSource
+    const parsedMagicRows = magicSource
         .map(entry => parseCatalogAbility(entry, 'MAGIC'))
         .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
         .map(({ aspects: _aspects, ...entry }) => entry);
-    const karmaRows = karmaSource
+    const parsedKarmaRows = karmaSource
         .map(entry => parseCatalogAbility(entry, 'KARMA'))
         .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
         .map(({ feature: _feature, ...entry }) => entry);
+    const catalogSignature = <T extends { external_id: string; source_url: string | null }>(row: T) => {
+        const { external_id: _externalId, source_url: _sourceUrl, ...rules } = row;
+        return JSON.stringify(rules);
+    };
+    const magicCatalog = canonicalizeCatalogRows(parsedMagicRows, catalogSignature);
+    const karmaCatalog = canonicalizeCatalogRows(parsedKarmaRows, catalogSignature);
+    const magicRows = magicCatalog.rows;
+    const karmaRows = karmaCatalog.rows;
 
     let spellCount = 0;
     for (const batch of chunks(magicRows)) {
@@ -106,7 +115,19 @@ export async function seedSupernaturalCatalogs() {
     }
 
     return {
-        spells: { source: magicSource.length, accepted: magicRows.length, stored: spellCount },
-        liturgies: { source: karmaSource.length, accepted: karmaRows.length, stored: liturgyCount },
+        spells: {
+            source: magicSource.length,
+            parsed: parsedMagicRows.length,
+            accepted: magicRows.length,
+            deduplicated: magicCatalog.deduplicated,
+            stored: spellCount,
+        },
+        liturgies: {
+            source: karmaSource.length,
+            parsed: parsedKarmaRows.length,
+            accepted: karmaRows.length,
+            deduplicated: karmaCatalog.deduplicated,
+            stored: liturgyCount,
+        },
     };
 }

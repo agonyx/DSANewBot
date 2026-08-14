@@ -32,8 +32,16 @@ describe('Regelwiki special-ability catalog parsing', () => {
 
     it('loads every fixed-cost magical and karmic entry from the local export', async () => {
         const rows = await loadSpecialAbilityCatalog();
-        assert.equal(rows.length, 995);
+        assert.equal(rows.length, 967);
+        assert.equal(new Set(rows.map(row => row.external_id)).size, rows.length);
         assert.ok(rows.some(row => row.category === 'MAGICAL'));
         assert.ok(rows.some(row => row.category === 'KARMAL'));
+
+        const astralTheft = rows.filter(row => row.name === 'Astralraub');
+        assert.equal(astralTheft.length, 2);
+        assert.deepEqual(
+            astralTheft.map(row => row.ap_cost).sort((left, right) => left - right),
+            [10, 20]
+        );
     });
 });

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { sql } from 'drizzle-orm';
 import { db } from '../db';
 import { specialAbilities } from '../db/schema';
+import { canonicalizeCatalogRows } from '../utils/catalogSeedUtils';
 import {
     parseSpecialAbility,
     type RegelwikiSpecialAbility,
@@ -22,7 +23,7 @@ async function loadSource(fileName: string): Promise<RegelwikiSpecialAbility[]> 
     return value as RegelwikiSpecialAbility[];
 }
 
-export async function loadSpecialAbilityCatalog() {
+async function loadParsedSpecialAbilityCatalog() {
     const sources = await Promise.all(
         SOURCES.map(async source => ({ ...source, entries: await loadSource(source.file) }))
     );
@@ -33,8 +34,29 @@ export async function loadSpecialAbilityCatalog() {
     );
 }
 
+export async function loadSpecialAbilityCatalog() {
+    const parsedRows = await loadParsedSpecialAbilityCatalog();
+    return canonicalizeCatalogRows(
+        parsedRows,
+        row => {
+            const { external_id: _externalId, source_url: _sourceUrl, ...rules } = row;
+            return JSON.stringify(rules);
+        },
+        true
+    ).rows;
+}
+
 export async function seedSpecialAbilityCatalog() {
-    const rows = await loadSpecialAbilityCatalog();
+    const parsedRows = await loadParsedSpecialAbilityCatalog();
+    const catalog = canonicalizeCatalogRows(
+        parsedRows,
+        row => {
+            const { external_id: _externalId, source_url: _sourceUrl, ...rules } = row;
+            return JSON.stringify(rules);
+        },
+        true
+    );
+    const rows = catalog.rows;
     let stored = 0;
     for (let offset = 0; offset < rows.length; offset += 100) {
         const batch = rows.slice(offset, offset + 100);
@@ -59,5 +81,11 @@ export async function seedSpecialAbilityCatalog() {
             .returning({ id: specialAbilities.id });
         stored += result.length;
     }
-    return { accepted: rows.length, stored };
+    return {
+        parsed: parsedRows.length,
+        accepted: rows.length,
+        deduplicated: catalog.deduplicated,
+        disambiguated: catalog.disambiguated,
+        stored,
+    };
 }
