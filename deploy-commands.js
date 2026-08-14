@@ -6,6 +6,7 @@ const { REST, Routes } = require('discord.js');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createLogger } = require('./utils/logger');
+const { shouldRegisterCommand } = require('./utils/commandRegistration');
 const log = createLogger('deploy-commands');
 
 const commands = [];
@@ -14,7 +15,7 @@ const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('
 
 for (const file of commandFiles) {
     const command = require(`./commands/${file}`);
-    commands.push(command.data.toJSON());
+    if (shouldRegisterCommand(command.data.name)) commands.push(command.data.toJSON());
 }
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);

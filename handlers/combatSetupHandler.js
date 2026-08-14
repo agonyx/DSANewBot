@@ -55,11 +55,7 @@ async function handleJoinCombatInteraction(interaction, sessionId) {
             return;
         }
 
-        const [statsRow] = await db
-            .select()
-            .from(statsTable)
-            .where(eq(statsTable.player_id, character.id))
-            .limit(1);
+        const [statsRow] = await db.select().from(statsTable).where(eq(statsTable.player_id, character.id)).limit(1);
         character.stats = statsRow || null;
 
         const stats = Array.isArray(character.stats) ? character.stats[0] : character.stats;
@@ -160,10 +156,7 @@ async function updateSetupMessage(client, sessionId) {
             return;
         }
 
-        const sessionCombatants = await db
-            .select()
-            .from(combatants)
-            .where(eq(combatants.session_id, sessionId));
+        const sessionCombatants = await db.select().from(combatants).where(eq(combatants.session_id, sessionId));
         updatedSession.combatants = sessionCombatants;
 
         if (updatedSession?.message_id && updatedSession?.combatants) {
@@ -244,11 +237,7 @@ async function showAddMobModal(interaction, sessionId) {
     log.info({ sessionId, userId: interaction.user.id }, 'Showing Add Mob Modal');
 
     try {
-        const [session] = await db
-            .select()
-            .from(combatSessions)
-            .where(eq(combatSessions.id, sessionId))
-            .limit(1);
+        const [session] = await db.select().from(combatSessions).where(eq(combatSessions.id, sessionId)).limit(1);
 
         if (!session) {
             await interaction.reply({ content: 'Not found', ephemeral: true });
@@ -301,7 +290,7 @@ async function handleAddMobSubmitInteraction(interaction, sessionId) {
         } catch (fetchError) {
             log.warn({ mobName: requestedMobName }, 'Mob template not found');
             return interaction.followUp({
-                content: `❌ Mob template named "**${requestedMobName}**" not found. Use \`/list-mobs\` or ensure exact spelling.`,
+                content: `❌ Mob template named "**${requestedMobName}**" not found. Use \`/mob list\` or ensure exact spelling.`,
                 ephemeral: true,
             });
         }
@@ -357,20 +346,13 @@ async function handleManageParticipantsInteraction(interaction, sessionId) {
     await interaction.deferReply({ ephemeral: true });
 
     try {
-        const [session] = await db
-            .select()
-            .from(combatSessions)
-            .where(eq(combatSessions.id, sessionId))
-            .limit(1);
+        const [session] = await db.select().from(combatSessions).where(eq(combatSessions.id, sessionId)).limit(1);
 
         if (!session?.id) {
             return interaction.editReply({ content: '❌ Could not fetch setup details.' });
         }
 
-        const sessionCombatants = await db
-            .select()
-            .from(combatants)
-            .where(eq(combatants.session_id, sessionId));
+        const sessionCombatants = await db.select().from(combatants).where(eq(combatants.session_id, sessionId));
         session.combatants = sessionCombatants;
 
         if (session.dm_user_id !== interaction.user.id) {
@@ -414,11 +396,7 @@ async function handleRemoveParticipantSelectInteraction(interaction, sessionId) 
     await interaction.deferUpdate({ ephemeral: true });
 
     try {
-        const [session] = await db
-            .select()
-            .from(combatSessions)
-            .where(eq(combatSessions.id, sessionId))
-            .limit(1);
+        const [session] = await db.select().from(combatSessions).where(eq(combatSessions.id, sessionId)).limit(1);
 
         if (!session || session.dm_user_id !== interaction.user.id) {
             return interaction.followUp({ content: `❌ You are no longer the DM for this session.`, ephemeral: true });
@@ -473,8 +451,7 @@ async function handleStartFightInteraction(interaction, sessionId) {
         }
         interaction.client.activeCombats.set(started.channel_id, memorySession);
 
-        const firstCombatantName =
-            started.combatants.find(c => c.id === started.turn_order[0])?.name || 'Unknown';
+        const firstCombatantName = started.combatants.find(c => c.id === started.turn_order[0])?.name || 'Unknown';
         await addLogEntry(interaction.client, started.channel_id, sessionId, `--- Combat Started! ---`);
         await addLogEntry(interaction.client, started.channel_id, sessionId, `--- ${firstCombatantName}'s Turn ---`);
 
@@ -504,11 +481,7 @@ async function handleCancelCombatInteraction(interaction, sessionId) {
     await interaction.deferReply({ ephemeral: true });
 
     try {
-        const [session] = await db
-            .select()
-            .from(combatSessions)
-            .where(eq(combatSessions.id, sessionId))
-            .limit(1);
+        const [session] = await db.select().from(combatSessions).where(eq(combatSessions.id, sessionId)).limit(1);
 
         if (!session) throw new Error('Not found');
         if (session.dm_user_id !== interaction.user.id) throw new Error('Not DM');

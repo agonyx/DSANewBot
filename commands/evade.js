@@ -25,7 +25,7 @@ module.exports = {
 
             if (!player) {
                 return interaction.editReply({
-                    content: '❌ No character selected! Use `/choose-character` first.',
+                    content: '❌ No character selected! Use `/character select` first.',
                 });
             }
 
@@ -37,7 +37,7 @@ module.exports = {
 
             if (!stats) {
                 return interaction.editReply({
-                    content: '❌ No character selected! Use `/choose-character` first.',
+                    content: '❌ No character selected! Use `/character select` first.',
                 });
             }
 

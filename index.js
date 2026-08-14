@@ -4,6 +4,7 @@ const { Client, Events, GatewayIntentBits, Collection, Partials } = require('dis
 const fs = require('node:fs');
 const path = require('node:path');
 const { createLogger } = require('./utils/logger');
+const { shouldRegisterCommand } = require('./utils/commandRegistration');
 const { selectCharacter, listCharacters } = require('./services/characters');
 const log = createLogger('index');
 
@@ -24,9 +25,9 @@ for (const file of commandFiles) {
     const filePath = path.join(commandsPath, file);
     const command = require(filePath);
 
-    if ('data' in command && 'execute' in command) {
+    if ('data' in command && 'execute' in command && shouldRegisterCommand(command.data.name)) {
         client.commands.set(command.data.name, command);
-    } else {
+    } else if (!('data' in command) || !('execute' in command)) {
         log.warn({ file: filePath }, 'Command missing required "data" or "execute" property');
     }
 }

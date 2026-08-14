@@ -107,7 +107,7 @@ module.exports = {
 
             if (!playerRow) {
                 return interaction.editReply({
-                    content: 'No selected character! Use /choose-character first',
+                    content: 'No selected character! Use `/character select` first.',
                 });
             }
 

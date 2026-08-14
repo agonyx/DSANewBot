@@ -6,9 +6,9 @@ const log = createLogger('heal');
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('heal')
-        .setDescription('Heal your character or another character (DM only for others)')
+        .setDescription('Manually restore LeP to your character or another character (DM only for others)')
         .addIntegerOption(option =>
-            option.setName('amount').setDescription('Amount of HP to restore').setRequired(true).setMinValue(1)
+            option.setName('amount').setDescription('Amount of LeP to restore').setRequired(true).setMinValue(1)
         )
         .addUserOption(option =>
             option.setName('target').setDescription('Target character to heal (optional, defaults to yourself)')
@@ -56,7 +56,7 @@ module.exports = {
             if (error.status === 404) {
                 return interaction.editReply({
                     content: isSelf
-                        ? '❌ No character selected! Use `/choose-character` first.'
+                        ? '❌ No character selected! Use `/character select` first.'
                         : '❌ Target has no selected character.',
                 });
             }

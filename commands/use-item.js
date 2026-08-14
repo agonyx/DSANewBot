@@ -23,7 +23,7 @@ module.exports = {
 
             if (!playerRow) {
                 return interaction.editReply({
-                    content: 'No selected character! Use /choose-character first',
+                    content: 'No selected character! Use `/character select` first.',
                 });
             }
 
@@ -117,10 +117,7 @@ module.exports = {
                         healingDone = newHP - stats.le_current;
 
                         if (healingDone > 0) {
-                            await db
-                                .update(statsTable)
-                                .set({ le_current: newHP })
-                                .where(eq(statsTable.id, stats.id));
+                            await db.update(statsTable).set({ le_current: newHP }).where(eq(statsTable.id, stats.id));
 
                             stats.le_current = newHP;
                         }

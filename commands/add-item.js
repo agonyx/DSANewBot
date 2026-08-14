@@ -32,7 +32,7 @@ module.exports = {
         .addStringOption(option =>
             option
                 .setName('effect')
-                .setDescription('Effect when used (e.g., "Heal 1w6+2", "Restore 5 MP")')
+                .setDescription('Effect when used (e.g., "Heal 1w6+2 LeP", "Restore 5 AsP")')
                 .setRequired(false)
         )
         .addStringOption(option =>

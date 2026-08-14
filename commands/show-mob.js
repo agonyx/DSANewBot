@@ -59,7 +59,7 @@ module.exports = {
         } catch (error) {
             if (error.status === 404) {
                 return interaction.editReply({
-                    content: `❌ Mob template named **${mobName}** not found. Check the spelling or use \`/list-mobs\`.`,
+                    content: `❌ Mob template named **${mobName}** not found. Check the spelling or use \`/mob list\`.`,
                 });
             }
             log.error({ error, mobName }, 'Error executing /show-mob');

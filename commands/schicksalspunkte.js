@@ -1,12 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { createLogger } = require('../utils/logger');
-const {
-    getResource,
-    spendResource,
-    restoreResource,
-    setResource,
-    RESOURCE_TYPES,
-} = require('../services/resources');
+const { getResource, spendResource, restoreResource, setResource, RESOURCE_TYPES } = require('../services/resources');
 const { createResourceEmbed } = require('../utils/resourceUtils');
 const log = createLogger('schicksalspunkte');
 
@@ -69,14 +63,21 @@ module.exports = {
             if (subcommand === 'show') {
                 const { characterName, current, max } = await getResource(ctx, { type: TYPE, targetDiscordId });
                 const embed = createResourceEmbed(characterName, META, current, current, max, 'show')
-                    .setFooter({ text: `Requested by ${interaction.user.username}`, iconURL: interaction.user.avatarURL() })
+                    .setFooter({
+                        text: `Requested by ${interaction.user.username}`,
+                        iconURL: interaction.user.avatarURL(),
+                    })
                     .setTimestamp();
                 return interaction.editReply({ embeds: [embed] });
             }
 
             if (subcommand === 'spend') {
                 const amount = interaction.options.getInteger('amount') || 1;
-                const { characterName, oldValue, newValue, max } = await spendResource(ctx, { type: TYPE, amount, targetDiscordId });
+                const { characterName, oldValue, newValue, max } = await spendResource(ctx, {
+                    type: TYPE,
+                    amount,
+                    targetDiscordId,
+                });
                 const embed = createResourceEmbed(characterName, META, oldValue, newValue, max, 'spend')
                     .setFooter({ text: `Used by ${interaction.user.username}`, iconURL: interaction.user.avatarURL() })
                     .setTimestamp();
@@ -85,19 +86,32 @@ module.exports = {
 
             if (subcommand === 'restore') {
                 const amount = interaction.options.getInteger('amount') || 1;
-                const { characterName, oldValue, newValue, actualAmount, max } = await restoreResource(ctx, { type: TYPE, amount, targetDiscordId });
+                const { characterName, oldValue, newValue, actualAmount, max } = await restoreResource(ctx, {
+                    type: TYPE,
+                    amount,
+                    targetDiscordId,
+                });
                 if (actualAmount === 0) {
-                    return interaction.editReply({ content: `ℹ️ Already at maximum Schicksalspunkte (${oldValue}/${max})` });
+                    return interaction.editReply({
+                        content: `ℹ️ Already at maximum Schicksalspunkte (${oldValue}/${max})`,
+                    });
                 }
                 const embed = createResourceEmbed(characterName, META, oldValue, newValue, max, 'restore')
-                    .setFooter({ text: `Restored by ${interaction.user.username}`, iconURL: interaction.user.avatarURL() })
+                    .setFooter({
+                        text: `Restored by ${interaction.user.username}`,
+                        iconURL: interaction.user.avatarURL(),
+                    })
                     .setTimestamp();
                 return interaction.editReply({ embeds: [embed] });
             }
 
             if (subcommand === 'set') {
                 const value = interaction.options.getInteger('value');
-                const { characterName, oldValue, newValue, max } = await setResource(ctx, { type: TYPE, value, targetDiscordId });
+                const { characterName, oldValue, newValue, max } = await setResource(ctx, {
+                    type: TYPE,
+                    value,
+                    targetDiscordId,
+                });
                 const embed = createResourceEmbed(characterName, META, oldValue, newValue, max, 'set')
                     .setFooter({ text: `Set by ${interaction.user.username}`, iconURL: interaction.user.avatarURL() })
                     .setTimestamp();
@@ -107,7 +121,7 @@ module.exports = {
             if (error.status === 404) {
                 return interaction.editReply({
                     content: isSelf
-                        ? '❌ No character selected! Use `/choose-character` first.'
+                        ? '❌ No character selected! Use `/character select` first.'
                         : '❌ Target has no selected character.',
                 });
             }

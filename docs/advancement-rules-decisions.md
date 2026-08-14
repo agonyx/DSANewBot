@@ -1,6 +1,6 @@
 # Advancement Rules Decisions
 
-This document is the acceptance reference for DSANewBot's AP ledger and character-improvement workflow. The implementation is shared by `services/advancement.ts`, `/api/advancement`, `/advance`, and the backward-compatible `/edit-skills` alias.
+This document is the acceptance reference for DSANewBot's AP ledger and character-improvement workflow. The implementation is shared by `services/advancement.ts`, `/api/advancement`, and `/advance`.
 
 ## Rules sources and progression model
 
@@ -33,7 +33,7 @@ Talent, spell, and liturgy improvements use the target value and the DSA advance
 - `stats.ap_total` is lifetime awarded AP, `ap_available` is the spendable balance, and `ap_spent` is the cumulative amount spent through the advancement workflow.
 - Every award, activation, and improvement writes an `ap_transactions` audit row with the resulting balance and authenticated Discord actor. The balance, acquired row, and improved value change in one database transaction; insufficient AP or failed prerequisites roll back the complete purchase.
 - All public operations resolve the selected character from the authenticated Discord identity. AP awards are explicit tabletop-session entries made by that character owner and require a reason.
-- `/advance` is the canonical player workflow. `/edit-skills` now invokes the same AP-backed special-ability service and cannot remove or freely assign abilities.
+- `/advance special` is the only registered player workflow for learning special abilities. The former `/edit-skills` implementation remains internal and is not registered.
 - `PATCH /characters/stats` and `POST /talents/skills` remain explicit owner/tabletop sheet overrides for importing or correcting an existing paper character. They do not forge ledger history and are intentionally not presented as advancement commands.
 
 ## Special abilities

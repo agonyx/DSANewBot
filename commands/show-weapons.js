@@ -85,8 +85,7 @@ module.exports = {
         } catch (error) {
             if (error.status === 404) {
                 return interaction.reply({
-                    content:
-                        'You have not selected a player yet. Use the /choose-character command to select a player.',
+                    content: 'You have not selected a character yet. Use `/character select` first.',
                     ephemeral: true,
                 });
             }

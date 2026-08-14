@@ -50,7 +50,10 @@ module.exports = {
                         .addChoices({ name: 'Item', value: 'ITEM' }, { name: 'Weapon', value: 'WEAPON' })
                 )
                 .addIntegerOption(option =>
-                    option.setName('asset_id').setDescription('ID from /show-items or /show-weapons').setRequired(true)
+                    option
+                        .setName('asset_id')
+                        .setDescription('ID from /inventory list or /weapon list')
+                        .setRequired(true)
                 )
                 .addIntegerOption(option =>
                     option.setName('quantity').setDescription('Item quantity').setMinValue(1).setMaxValue(100)

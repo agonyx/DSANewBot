@@ -41,7 +41,7 @@ This document records the implementation choices that connect DSANewBot's magic 
 - Curated mechanical mappings cover damage (`Ignifaxius`, `Fulminictus`), resource-scaled healing (`Balsam Salabunde`, `Heilsegen`), one-per-day healing (`Kleiner Heilsegen`), armor (`Armatrutz`), and Paralysis. Every other accepted entry creates a persisted narrative `UTILITY` result from its Regelwiki effect text rather than returning an empty success.
 - Damage uses the shared dice, armor, wound-threshold, LP synchronization, and incapacitation path. Fulminictus ignores mundane armor; Ignifaxius can add `Brennend` on the cataloged 1-3 on 1d6 result.
 - Combat buffs, conditions, and statuses use the shared persisted effect tables. Round durations tick with combat lifecycle events and update their supernatural tracking record. Real-time durations expire by timestamp. One DSA minute is represented as 30 combat rounds when a time-based buff must participate in turn processing.
-- Instant effects are retained as inactive audit records. Ongoing, permanent, and narrative effects remain discoverable through `/supernatural-effects` and the API.
+- Instant effects are retained as inactive audit records. Ongoing, permanent, and narrative effects remain discoverable through `/casting status` and the API.
 
 ## Miracles
 

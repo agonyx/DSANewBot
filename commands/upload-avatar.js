@@ -25,7 +25,7 @@ module.exports = {
 
             if (!player) {
                 return interaction.reply({
-                    content: 'No player selected. Use the /choose-character command first.',
+                    content: 'No character selected. Use `/character select` first.',
                     ephemeral: true,
                 });
             }

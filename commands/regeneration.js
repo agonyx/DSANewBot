@@ -85,7 +85,7 @@ module.exports = {
             if (error.status === 404) {
                 return interaction.editReply({
                     content: isSelf
-                        ? '❌ No character selected! Use `/choose-character` first.'
+                        ? '❌ No character selected! Use `/character select` first.'
                         : '❌ Target has no selected character.',
                 });
             }

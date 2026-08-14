@@ -33,7 +33,7 @@ async function getPlayerData(discordId) {
         }
     } catch (error) {
         if (error.message?.includes('Incomplete')) throw error;
-        throw new Error(`No character selected for the user with ID ${discordId}. Use \`/choose-character\`.`, {
+        throw new Error(`No character selected for the user with ID ${discordId}. Use \`/character select\`.`, {
             cause: error,
         });
     }

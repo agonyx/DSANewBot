@@ -54,7 +54,7 @@ Create a `.env` file with:
 
 ### Command Structure
 
-Every command in `/commands` exports:
+Every command module in `/commands` exports:
 
 ```javascript
 module.exports = {
@@ -68,6 +68,13 @@ module.exports = {
     },
 };
 ```
+
+Related public operations use noun roots with subcommands (`/character`,
+`/combat`, `/inventory`, `/weapon`, `/mob`, `/maneuver`, and `/casting`). The
+legacy leaf modules remain internal handler implementations and are filtered by
+`utils/commandRegistration.js`. Use `utils/delegatedCommand.js` when adding a
+subcommand backed by an existing leaf handler. `/inventory`, `/inv`, and `/items`
+are intentionally identical aliases.
 
 ### Interaction Handling Flow
 
@@ -165,11 +172,12 @@ Supports DSA notation: `XwY+Z` (X dice of Y sides plus Z bonus)
 
 ## Adding New Commands
 
-1. Create file in `/commands/` following the pattern
+1. Extend the appropriate public root, or create a focused root in `/commands/`
 2. Export `data` (SlashCommandBuilder) and `execute` function
 3. For autocomplete: also export `autocomplete` function
-4. Run `node deploy-commands.js guild` to test
-5. Run `node deploy-commands.js` for global deployment
+4. Run `npm run test:commands`
+5. Run `node deploy-commands.js guild` only when test-guild deployment is authorized
+6. Run `node deploy-commands.js` only when global deployment is authorized
 
 ## Adding New Combat Interactions
 
@@ -277,4 +285,6 @@ node scripts/import-rules-v3.js --include-unresolved
 
 ### Current Integration Status
 
-The rules search infrastructure is **fully operational** but **not yet wired into Discord commands**. The `rulesClient.js` functions are ready to be imported by any command or handler. No Discord command currently exposes rule lookup to users.
+The rules search infrastructure is wired into the `/regel` Discord command and
+authenticated rules API. Useful semantic results still depend on importing the
+`rule_pages` and `rule_chunks` corpus into the target database.

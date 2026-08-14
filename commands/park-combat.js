@@ -37,10 +37,7 @@ module.exports = {
                     return interaction.editReply('❌ There is no active combat session in this channel to park.');
                 }
 
-                const combatantsRows = await db
-                    .select()
-                    .from(combatants)
-                    .where(eq(combatants.session_id, data.id));
+                const combatantsRows = await db.select().from(combatants).where(eq(combatants.session_id, data.id));
 
                 sessionData = {
                     ...data,
@@ -86,16 +83,13 @@ module.exports = {
                 );
             }
 
-            await db
-                .update(combatSessions)
-                .set({ state: 'PAUSED' })
-                .where(eq(combatSessions.id, sessionId));
+            await db.update(combatSessions).set({ state: 'PAUSED' }).where(eq(combatSessions.id, sessionId));
 
             sessionData.state = 'PAUSED';
 
             await updateCombatDisplay(interaction.client, channelId);
 
-            await interaction.editReply('✅ Combat has been paused. Use `/resume-combat` to continue.');
+            await interaction.editReply('✅ Combat has been paused. Use `/combat resume` to continue.');
         } catch (error) {
             log.error({ error }, 'Error parking combat');
             await interaction.editReply(`❌ An error occurred: ${error.message || 'Failed to park combat.'}`);

@@ -1,167 +1,135 @@
-## Redundancies
+# Discord Command Surface Audit
 
-None. Every command serves a distinct purpose. Closest overlaps:
+Last audited: 2026-08-14
 
-- `/heal` vs `/use-item` (potion) — `/heal` is DM godmode, `/use-item` is in-game mechanic. Keep both.
-- `/attack` (standalone) vs combat button attacks — different contexts (out-of-combat vs in-combat). Keep both.
-- `/park-combat` + `/resume-combat` + `/end-combat` — three commands for session state. Could be one command with subcommands, but current approach is fine for discoverability.
+## Outcome
 
-## Missing Commands
+The production bot registers 36 top-level slash commands. Development mode adds
+`/dev-test-character` and `/dev-test-mobs` for a total of 38. The legacy leaf
+command modules remain as internal handler implementations, but they are not
+registered with Discord.
 
-### Tier 1 — CRUD Gaps (broken workflows) ✅ FIXED
+The naming model is:
 
-| Command       | Status  | Notes                                                                              |
-| ------------- | ------- | ---------------------------------------------------------------------------------- |
-| `edit-weapon` | ✅ Done | Interactive editor for weapon properties (name, type, tp, at, pa, equipped, slot)  |
-| `edit-item`   | ✅ Done | Interactive editor for item properties (name, type, quantity, effect, description) |
-| `delete-mob`  | ✅ Done | Delete mob templates with confirmation (DM-only)                                   |
+- Use a stable noun as the root for related operations (`/character`, `/combat`,
+  `/weapon`, `/mob`, `/maneuver`, `/casting`).
+- Use subcommands for CRUD and lifecycle verbs (`add`, `list`, `edit`, `delete`,
+  `start`, `pause`, and so on).
+- Keep established DSA resource terms and focused workflows as standalone roots
+  (`/asp`, `/kap`, `/probe`, `/regel`, `/advance`).
+- Name standalone rolls `/attack-check` and `/evade-check` so they are not
+  confused with tracked combat actions.
+- Treat `/inventory` as canonical and register `/inv` and `/items` as complete,
+  behaviorally identical aliases.
 
-### Tier 2 — Core DSA Mechanics ✅ DONE
+## Consolidated command families
 
-| Command              | Status  | Notes                                                                                     |
-| -------------------- | ------- | ----------------------------------------------------------------------------------------- |
-| `/schicksalspunkte`  | ✅ Done | Subcommands: spend, restore, set, show. Tracks fate points (default 3/3).                 |
-| `/asp`               | ✅ Done | Subcommands: spend, restore, show. Astralpunkte for Zauberer (max 0 = non-caster).        |
-| `/kap`               | ✅ Done | Subcommands: spend, restore, show. Karmapunkte for Geweihte (max 0 = non-blessed).        |
-| `/condition`         | ✅ Done | Subcommands: add, remove, list. Leveled conditions (Schmerz, Betäubung, etc.) in combat.  |
-| `/status`            | ✅ Done | Subcommands: add, remove, list. Binary status effects (Blutend, Liegend, etc.) in combat. |
-| `/regeneration`      | ✅ Done | Regenerationsphase — rolls 1W6 per energy type (LeP, AsP if caster, KaP if blessed).      |
-| `show-stats` updated | ✅ Done | Displays SchP, AsP, KaP, AP, wounds, armor, and Belastung.                                |
-| `edit-stats` updated | ✅ Done | All new resource fields editable.                                                         |
-| Combat display       | ✅ Done | Pain levels (P1-P4), condition/status indicators in roster and spotlight.                 |
+| Root                           | Subcommands                                                                      | Replaces registered leaf names                                                                                                              |
+| ------------------------------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/character`                   | `create`, `select`, `sheet`, `edit`, `export`, `avatar`, `delete`, `restore-lep` | `/create-character`, `/choose-character`, `/show-stats`, `/edit-stats`, `/export-character`, `/upload-avatar`, `/delete-character`, `/heal` |
+| `/combat`                      | `start`, `end`, `pause`, `resume`, `log`                                         | `/start-combat`, `/end-combat`, `/park-combat`, `/resume-combat`, `/combat-log`                                                             |
+| `/inventory`, `/inv`, `/items` | `add`, `list`, `edit`, `remove`, `use`                                           | `/add-item`, `/show-items`, `/edit-item`, `/remove-item`, `/use-item`                                                                       |
+| `/weapon`                      | `add`, `list`, `edit`, `equip`, `delete`                                         | `/add-weapon`, `/show-weapons`, `/edit-weapon`, `/equip-weapon`, `/delete-weapon`                                                           |
+| `/mob`                         | `add`, `list`, `show`, `edit`, `delete`                                          | `/add-mob`, `/list-mobs`, `/show-mob`, `/edit-mob`, `/delete-mob`                                                                           |
+| `/maneuver`                    | `list`, `show`, `use`                                                            | `/list-maneuvers`, `/show-maneuver`, `/use-skill`                                                                                           |
+| `/casting`                     | `status`, `complete`, `cancel`                                                   | `/supernatural-effects`, `/complete-casting`, `/cancel-casting`                                                                             |
+| `/ability`                     | `list`                                                                           | `/show-skills`                                                                                                                              |
+| `/attack-check`                | leaf command                                                                     | `/attack`                                                                                                                                   |
+| `/evade-check`                 | leaf command                                                                     | `/evade`                                                                                                                                    |
 
-### Tier 3 — Session Quality of Life ✅ DONE
+`/edit-skills` is no longer registered. `/advance special` is the single
+AP-backed special-ability learning path.
 
-| Feature                  | Status  | Evidence                                                                                            |
-| ------------------------ | ------- | --------------------------------------------------------------------------------------------------- |
-| **Loot/Treasure tables** | ✅ Done | `/loot` generates tiered ended-combat pools and distributes catalog items/currency to participants. |
-| **Combat log command**   | ✅ Done | `/combat-log` and the authenticated API expose the latest active or ended log for the channel.      |
-| **Maneuver library**     | ✅ Done | `/list-maneuvers`, `/show-maneuver`, and `/api/maneuvers` use the source-documented seeded catalog. |
+## Intentional distinctions
 
-### Tier 4 — Nice to Have (later)
+- `/character restore-lep` is a manual sheet/DM correction; `/inventory use` is
+  the in-game consumable workflow and consumes an owned item.
+- `/attack-check` and `/evade-check` are standalone rolls outside the persistent
+  encounter flow. Tracked combat attacks and defenses remain button/action driven.
+- `/equipment` manages worn gear, armor, load, and encumbrance. The inventory
+  aliases manage carried item stacks. `/weapon` manages the legacy weapon records.
+- `/condition`, `/status`, and `/effect` represent different persisted mechanics:
+  leveled conditions, binary statuses, and numeric/narrative buffs or debuffs.
 
-| Feature                         | Notes                                                              |
-| ------------------------------- | ------------------------------------------------------------------ |
-| Spell/Liturgy management        | ✅ Implemented under the committed Priority 2 roadmap scope        |
-| Advantage/Disadvantage tracking | Character creation completeness                                    |
-| XP/AP tracking & leveling       | ✅ Implemented as DSA AP purchases (DSA has no numeric levels)     |
-| Encumbrance                     | ✅ Implemented with weight, armor BE, capacity, and penalties      |
-| Character import (Optolith)     | Competitor "Das Weisse Auge" has 2-click hero import from Optolith |
-| Name generator                  | Aventurian NPC names for DMs                                       |
-| Notes/Journal                   | Session notes attached to combat encounters                        |
-| Dice tables                     | DSA-specific critical hit and botch tables                         |
+## Current production inventory
 
-## Competitor: Das Weisse Auge
+### Character and resources (7)
 
-The most direct DSA 5e Discord bot competitor. Features they have that we don't:
+- `/character`
+- `/advance`
+- `/schicksalspunkte`
+- `/asp`
+- `/kap`
+- `/regeneration`
+- `/treat-wounds`
 
-- **Optolith import** — 2-click hero file import
-- **7000+ visual playing cards** — equipment, spells, items rendered as card images
-- **Botch/Crit tables** — random flavor tables for critical successes and failures
-- **DM secret rolling** — roll checks without players seeing
-- **Group management** — organize players into groups for secret checks
+### Combat and effects (7)
 
-The playing cards system is what our planned canvas integration could rival.
+- `/combat`
+- `/combat-action`
+- `/attack-check`
+- `/evade-check`
+- `/condition`
+- `/status`
+- `/effect`
 
-## Current Command Inventory (62 commands)
+### Equipment, inventory, and economy (9)
 
-### Character Management and Advancement (7)
+- `/inventory`
+- `/inv`
+- `/items`
+- `/weapon`
+- `/equipment`
+- `/wallet`
+- `/shop`
+- `/trade`
+- `/loot`
 
-- `/create-character` — Create new character
-- `/choose-character` — Select active character
-- `/show-stats` — View character attributes
-- `/edit-stats` — Modify character attributes
-- `/upload-avatar` — Set character image
-- `/delete-character` — Remove character
-- `/advance` — Show/award AP and improve attributes, FW, or special abilities
+### Skills, rules, and utility (7)
 
-### Combat and Session State (13)
+- `/ability`
+- `/maneuver`
+- `/probe`
+- `/regel`
+- `/help`
+- `/roll`
+- `/macro`
 
-- `/start-combat` — Begin encounter
-- `/end-combat` — Terminate encounter
-- `/park-combat` — Pause encounter
-- `/resume-combat` — Resume paused encounter
-- `/attack` — Standalone attack roll (outside formal combat)
-- `/evade` — Dodge attack
-- `/heal` — Restore HP
-- `/use-skill` — Execute combat maneuver
-- `/combat-action` — Full defense, reload, escape, two-weapon, and opportunity actions
-- `/combat-log` — Review active or ended combat logs
-- `/condition` — Manage leveled combat conditions
-- `/status` — Manage binary combat statuses
-- `/effect` — Manage persisted combat buffs/debuffs
+### Magic and Karma (5)
 
-### Equipment, Inventory, and Economy (15)
+- `/casting`
+- `/spells`
+- `/liturgies`
+- `/tradition`
+- `/miracle`
 
-- `/add-weapon` — Create weapon
-- `/show-weapons` — List weapons
-- `/equip-weapon` — Assign weapon to slot
-- `/edit-weapon` — Modify weapon properties
-- `/delete-weapon` — Remove weapon
-- `/add-item` — Add inventory item
-- `/show-items` — List inventory
-- `/edit-item` — Modify item properties
-- `/use-item` — Consume item
-- `/remove-item` — Delete inventory item
-- `/equipment` — Equip/wear gear and inspect load, RS, and Belastung
-- `/wallet` — Show or adjust money with an audit ledger
-- `/shop` — Browse, buy, and sell catalog equipment
-- `/trade` — Offer and resolve atomic player trades
-- `/loot` — Generate and distribute post-combat rewards
+### Mob management (1)
 
-### Skills, Talents, and Maneuvers (5)
+- `/mob`
 
-- `/probe` — Perform talent check (Talentprobe)
-- `/edit-skills` — Legacy alias for AP-backed special-ability learning
-- `/show-skills` — List assigned skills
-- `/list-maneuvers` — Browse maneuver catalog
-- `/show-maneuver` — Inspect maneuver rules and prerequisites
+`/mob add`, `/mob edit`, and `/mob delete` require Manage Server permission at
+execution time. `/mob list` and `/mob show` remain available to players.
 
-### Mob Management (5)
+## Roadmap reconciliation
 
-- `/add-mob` — Create mob template
-- `/edit-mob` — Modify mob template
-- `/delete-mob` — Delete mob template
-- `/list-mobs` — View all templates
-- `/show-mob` — View specific template
+| Earlier audit item          | Current status   | Evidence                                                                                                  |
+| --------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------- |
+| Tier 0 naming               | **DONE**         | Canonical roots and standalone check names are registered; legacy names are filtered centrally.           |
+| Tier 1 CRUD gaps            | **DONE**         | `/weapon edit`, `/inventory edit`, and `/mob delete` delegate to the completed implementations.           |
+| Tier 2 resources/conditions | **DONE**         | SchP, AsP, KaP, condition/status/effect CRUD, regeneration, and displays remain independently registered. |
+| `/regel` availability       | **DONE**         | `/regel` remains registered and tested.                                                                   |
+| Loot / treasure tables      | **DONE**         | `/loot` remains the focused post-combat reward workflow.                                                  |
+| Combat logs                 | **DONE**         | `/combat log` delegates to the active/ended channel log implementation.                                   |
+| Maneuver library            | **DONE**         | `/maneuver list` and `/maneuver show` reuse the seeded catalog; `/maneuver use` runs learned maneuvers.   |
+| Nice-to-Have / Tier 4       | **OUT OF SCOPE** | No deferred product feature was added as part of the naming cleanup.                                      |
 
-### Magic and Karma (9)
+## Verification contract
 
-- `/asp` — Manage Astralpunkte (spend/restore/show)
-- `/kap` — Manage Karmapunkte (spend/restore/show)
-- `/spells` — Browse, learn, inspect, and cast spells/rituals
-- `/liturgies` — Browse, learn, inspect, and perform liturgies/ceremonies
-- `/tradition` — Configure magical/blessed traditions and deity
-- `/miracle` — Use favored-talent/attack/defense miracles
-- `/complete-casting` — Complete a pending ritual or ceremony
-- `/cancel-casting` — Interrupt a pending casting with the documented refund
-- `/supernatural-effects` — Inspect pending castings and tracked effects
-
-### Resources and Wounds (3)
-
-- `/schicksalspunkte` — Manage fate points (spend/restore/set/show)
-- `/regeneration` — Roll regeneration for LeP/AsP/KaP and natural wound healing
-- `/treat-wounds` — Treat healing, pain, stabilization, or bleeding
-
-### Regelwiki (1)
-
-- `/regel` — Semantic search across 7,196 DSA 5e rules
-
-### Utility (2)
-
-- `/help` — Command documentation
-- `/roll` — Dice roller (DSA notation)
-
-### Dev Only (2)
-
-- `/dev-test-character` — Create test character
-- `/dev-test-mobs` — Create test mobs
-
-## Implementation Priority
-
-1. ~~**Fix naming** (Tier 0) — `create-character`, `probe`, `show-mob`, `edit-skills`~~ ✅ DONE
-2. ~~**CRUD gaps** (Tier 1) — `edit-weapon`, `edit-item`, `delete-mob`~~ ✅ DONE
-3. ~~**Core DSA resources** (Tier 2) — fate points, astral/karma points, conditions, rest/regen~~ ✅ DONE
-4. ~~**DM tools** (Tier 3) — loot tables, combat log command, maneuver library~~ ✅ DONE
-5. **Canvas integration** — visual character cards, combat display, stat blocks
-6. **Nice-to-have remainder** (Tier 4) — advantages/disadvantages and other explicitly deferred ideas
+`utils/commandRegistration.js` is the single registration policy used by runtime
+startup and deployment. `utils/delegatedCommand.js` copies each leaf command's
+live Discord option metadata and delegates execution/autocomplete without
+duplicating business logic. `npm run test:commands` validates the family trees,
+the three identical inventory aliases, legacy/dev filtering, unique registered
+names, and the exact production/development counts. `tests/commandRouting.test.js`
+covers option copying, execution, autocomplete, authorization hooks, renames, and
+registration policy.

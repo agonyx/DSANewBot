@@ -16,16 +16,17 @@ Last audit: 2026-08-14
 
 ## Current verification baseline
 
-| Check                   | Result         | Evidence / limitation                                                                                                                                                             |
-| ----------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Full test gate          | **PASS**       | `npm test` on isolated Netcup PostgreSQL: 142/142 Node API/mechanics tests and 214/214 Jest command/unit tests pass (356 total); all 64 Discord commands also load and serialize. |
-| TypeScript              | **PASS**       | `npx tsc --noEmit`: zero errors at the final verified revision.                                                                                                                   |
-| Lint                    | **PASS**       | `npm run lint`: zero errors and 23 pre-existing warnings (two fewer than the starting baseline; no new warnings).                                                                 |
-| Repository formatting   | **KNOWN FAIL** | Pre-existing baseline is 87 files. Per the execution contract, unrelated files were not reformatted.                                                                              |
-| Changed-file formatting | **PASS**       | Prettier passes on every formatter-supported file changed by the committed roadmap and Nice-to-Have slices.                                                                       |
-| Migration               | **PASS**       | A fresh `pgvector/pgvector:pg16` container applied all 11 ordered migration files plus vector SQL; Drizzle reports 35 tables and no schema changes.                               |
-| Catalog seed            | **PASS**       | Two consecutive clean-room seed runs succeeded: 59 talents, 14 maneuvers, 461 spells, 353 liturgies, 20 equipment entries, and 967 special abilities.                             |
-| Isolation               | **PASS**       | Current Discord testing uses separate `dsa-discord-test-*` containers, network, volumes, checkout, and database; production `dsa-db` was not mutated.                             |
+| Check                   | Result         | Evidence / limitation                                                                                                                                                         |
+| ----------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Full test gate          | **PASS**       | `npm test` on isolated Netcup PostgreSQL: 142/142 Node API/mechanics tests and 220/220 Jest command/unit tests pass (362 total).                                              |
+| Command surface         | **PASS**       | 76 source modules validate as exactly 36 production commands and 38 development commands; canonical family trees and `/inventory`, `/inv`, `/items` equivalence are asserted. |
+| TypeScript              | **PASS**       | `npx tsc --noEmit`: zero errors at the final verified revision.                                                                                                               |
+| Lint                    | **PASS**       | `npm run lint`: zero errors and 23 pre-existing warnings (two fewer than the starting baseline; no new warnings).                                                             |
+| Repository formatting   | **KNOWN FAIL** | Pre-existing baseline is 87 files. Per the execution contract, unrelated files were not reformatted.                                                                          |
+| Changed-file formatting | **PASS**       | Prettier passes on every formatter-supported file changed by the committed roadmap, Nice-to-Have, and command-cleanup slices.                                                 |
+| Migration               | **PASS**       | A fresh `pgvector/pgvector:pg16` container applied all 11 ordered migration files plus vector SQL; Drizzle reports 35 tables and no schema changes.                           |
+| Catalog seed            | **PASS**       | Two consecutive clean-room seed runs succeeded: 59 talents, 14 maneuvers, 461 spells, 353 liturgies, 20 equipment entries, and 967 special abilities.                         |
+| Isolation               | **PASS**       | Command-cleanup regression tests ran in a disposable Node container on the separate `dsa-discord-test` network/database; production `dsa-db` was not contacted.               |
 
 The scoped Graphify pass found 1,165 DSANewBot nodes, 2,199 relationships, and
 58 labeled communities. The bounded semantic retry produced 50 document nodes,
@@ -170,20 +171,20 @@ final command serialization/unit gate.
 | Combat and effects          | `db/schema.ts`; `0004_remarkable_crystal.sql`, `0005_simple_madame_hydra.sql` | `services/combat.ts`, `services/combatEffects.ts`, `services/maneuvers.ts`, combat/maneuver APIs and Discord commands/components                           | `docs/combat-rules-decisions.md` plus the local maneuver and condition/status references | `combat-effects.test.ts`, `combat.test.ts`, `combatUtils.test.js`, `combatComponents.test.js`                    |
 | Magic and Karma             | `db/schema.ts`; `0006_freezing_klaw.sql`                                      | `services/supernatural.ts`, `api/routes/supernatural.ts`, catalog seeds, and supernatural Discord commands                                                 | `docs/supernatural-rules-decisions.md`                                                   | `supernatural-catalog.test.ts`, `catalog-seed.test.ts`, `supernatural.test.ts`                                   |
 | Economy and equipment       | `db/schema.ts`; `0007_light_stick.sql`                                        | `services/economy.ts`, `services/equipment.ts`, `services/trades.ts`, `services/loot.ts`, economy API, `/wallet`, `/shop`, `/equipment`, `/trade`, `/loot` | `docs/economy-equipment-rules-decisions.md`                                              | `economy-utils.test.ts`, `economy.test.ts`, `inventory.test.ts`, combat integration tests                        |
-| AP advancement              | `db/schema.ts`; `0008_new_mentor.sql`, `0009_faithful_vance_astro.sql`        | `services/advancement.ts`, `api/routes/advancement.ts`, `/advance`, AP-backed `/edit-skills`, special-ability seed                                         | `docs/advancement-rules-decisions.md`                                                    | `advancement-utils.test.ts`, `advancement.test.ts`, `special-ability-catalog.test.ts`, `catalog-seed.test.ts`    |
-| Existing/reconciled systems | `0000_init.sql` and the complete ordered chain through `0009`                 | resources, character/talent/inventory/rules APIs; command metadata, registration, `/help`, and `/regel`                                                    | `ROADMAP.md`, `COMMAND_AUDIT.md`, this ledger                                            | `foundation.test.ts`, `characters.test.ts`, `talents.test.ts`, `rules.test.ts`, `regel.test.js`, transform tests |
+| AP advancement              | `db/schema.ts`; `0008_new_mentor.sql`, `0009_faithful_vance_astro.sql`        | `services/advancement.ts`, `api/routes/advancement.ts`, `/advance special`, special-ability seed                                                           | `docs/advancement-rules-decisions.md`                                                    | `advancement-utils.test.ts`, `advancement.test.ts`, `special-ability-catalog.test.ts`, `catalog-seed.test.ts`    |
+| Existing/reconciled systems | `0000_init.sql` and the complete ordered chain through `0010`                 | resources, character/talent/inventory/rules APIs; canonical command roots/aliases, registration, `/help`, and `/regel`                                     | `ROADMAP.md`, `COMMAND_AUDIT.md`, this ledger                                            | `foundation.test.ts`, `characters.test.ts`, `talents.test.ts`, `rules.test.ts`, `regel.test.js`, command routing |
 
 ### COMMAND_AUDIT reconciliation
 
 | Item                        | Status      | Evidence / action                                                                                                                                  |
 | --------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Tier 0 command naming       | **STALE**   | Actual commands are already `/create-character`, `/probe`, `/show-mob`, and `/edit-skills`; no rename is needed.                                   |
-| Tier 1 CRUD gaps            | **DONE**    | `/edit-weapon`, `/edit-item`, and `/delete-mob` exist.                                                                                             |
+| Tier 0 command naming       | **DONE**    | Related leaf commands are consolidated under noun roots; standalone rolls are `/attack-check` and `/evade-check`; legacy names are not registered. |
+| Tier 1 CRUD gaps            | **DONE**    | `/weapon edit`, `/inventory edit`, and `/mob delete` delegate to the completed CRUD implementations.                                               |
 | Tier 2 resources/conditions | **DONE**    | SchP, AsP, KaP, condition/status CRUD, regeneration, and displays exist; lifecycle/help gaps are tracked in their owning slices.                   |
 | `/regel` availability       | **STALE**   | `commands/regel.js` and tests already exist despite older guidance saying the vector DB was not exposed.                                           |
 | Loot / treasure tables      | **DONE**    | `/loot` and authenticated API implement tiered ended-combat pools, DM authorization, participant checks, and atomic awards; live regressions pass. |
-| Combat log command          | **DONE**    | `/combat-log` and `GET /combat/log` return the latest active or ended channel session; command/unit and live combat tests pass.                    |
-| Maneuver library commands   | **DONE**    | `/list-maneuvers`, `/show-maneuver`, and `/api/maneuvers` reuse the seeded catalog; seed and command tests pass.                                   |
+| Combat log command          | **DONE**    | `/combat log` and `GET /combat/log` return the latest active or ended channel session; command/unit and live combat tests pass.                    |
+| Maneuver library commands   | **DONE**    | `/maneuver list`, `/maneuver show`, and `/api/maneuvers` reuse the seeded catalog; seed and command tests pass.                                    |
 | Tier 4                      | **BLOCKED** | Explicitly out of scope for this goal; no implementation will be attempted.                                                                        |
 
 ## Checkpoints, dependencies, and exit criteria
@@ -245,7 +246,7 @@ local-Docker blocker without touching the production database or container.
   Sturmangriff, Verteidigungshaltung, and ranged range/cover/reload handling.
 - Expanded the maneuver catalog and prerequisites, added combat-technique weapon
   metadata, NPC shared-service maneuver handling, catalog list/detail UX,
-  persisted effect display, and active/ended `/combat-log` access.
+  persisted effect display, and active/ended `/combat log` access.
 - Generated `0004_remarkable_crystal.sql` for the effect/combat/ranged state and
   `0005_simple_madame_hydra.sql` for combat techniques; documented timing and
   rules decisions in `docs/combat-rules-decisions.md`.
@@ -314,8 +315,8 @@ local-Docker blocker without touching the production database or container.
   improvements, FW caps, special-ability purchases, prerequisite/duplicate checks,
   and immutable actor-attributed ledger entries with rollback on failure.
 - Added authenticated `/advancement` routes and `/advance` with autocomplete;
-  migrated `/edit-skills` from free multi-assignment to the same AP-backed learning
-  service, exposed AP on `/show-stats`, and updated command/help metadata.
+  migrated special-ability learning from free multi-assignment to the same AP-backed
+  service, exposed AP on `/character sheet`, and updated command/help metadata.
 - Generated `0008_new_mentor.sql` with catalog metadata, source-aligned maneuver AP
   costs, duplicate-safe unique ownership constraints, highest-FW preservation, and
   existing-character talent backfill. Documented mechanics and override boundaries
@@ -390,7 +391,7 @@ local-Docker blocker without touching the production database or container.
 
 ### 2026-08-14 — Character export, dice macros, and Discord test deployment
 
-- Added `/export-character` and `GET /characters/me/export`. The selected
+- Added `/character export` and `GET /characters/me/export`. The selected
   character is rendered as a safe UTF-8 text attachment containing attributes,
   resources, wounds, combat values, talents, weapons, inventory, special
   abilities, traditions, spells, liturgies, and wallet balances.
@@ -421,3 +422,22 @@ local-Docker blocker without touching the production database or container.
   contain zero `rule_pages` and `rule_chunks`. `/regel` command wiring and empty
   result behavior are covered, but meaningful Regelwiki search cannot be
   exercised until a corpus is imported.
+
+### 2026-08-14 — Discord command naming cleanup
+
+- Consolidated character, combat, inventory, weapon, mob, maneuver, casting, and
+  ability operations under stable noun roots. Renamed the two standalone rolls to
+  `/attack-check` and `/evade-check` and stopped registering the legacy leaf names.
+- Registered `/inventory` as the canonical item family with complete `/inv` and
+  `/items` aliases. All three roots share the same metadata and delegated handlers.
+- Centralized production/development/legacy registration policy for both runtime
+  startup and command deployment. Development fixtures now require `DEV_MODE=true`.
+- Retained each completed leaf handler as the internal implementation, so the
+  cleanup changes Discord routing and discoverability without duplicating or
+  replacing business logic. Updated command responses, `/help`, `ROADMAP.md`, and
+  `COMMAND_AUDIT.md` to the canonical syntax.
+- Verification: `npm test` passes 142/142 Node API/mechanics and 220/220 Jest
+  command/unit tests (362 total) on isolated Netcup PostgreSQL. The command gate
+  validates 76 source modules as exactly 36 production and 38 development
+  commands. TypeScript passes; lint has zero errors and the unchanged 23 warnings;
+  changed-file Prettier and Git whitespace checks pass.

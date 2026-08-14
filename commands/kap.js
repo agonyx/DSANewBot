@@ -57,14 +57,21 @@ module.exports = {
                     });
                 }
                 const embed = createResourceEmbed(characterName, META, current, current, max, 'show')
-                    .setFooter({ text: `Requested by ${interaction.user.username}`, iconURL: interaction.user.avatarURL() })
+                    .setFooter({
+                        text: `Requested by ${interaction.user.username}`,
+                        iconURL: interaction.user.avatarURL(),
+                    })
                     .setTimestamp();
                 return interaction.editReply({ embeds: [embed] });
             }
 
             if (subcommand === 'spend') {
                 const amount = interaction.options.getInteger('amount');
-                const { characterName, oldValue, newValue, max } = await spendResource(ctx, { type: TYPE, amount, targetDiscordId });
+                const { characterName, oldValue, newValue, max } = await spendResource(ctx, {
+                    type: TYPE,
+                    amount,
+                    targetDiscordId,
+                });
                 const embed = createResourceEmbed(characterName, META, oldValue, newValue, max, 'spend')
                     .setFooter({ text: `Used by ${interaction.user.username}`, iconURL: interaction.user.avatarURL() })
                     .setTimestamp();
@@ -73,12 +80,19 @@ module.exports = {
 
             if (subcommand === 'restore') {
                 const amount = interaction.options.getInteger('amount');
-                const { characterName, oldValue, newValue, actualAmount, max } = await restoreResource(ctx, { type: TYPE, amount, targetDiscordId });
+                const { characterName, oldValue, newValue, actualAmount, max } = await restoreResource(ctx, {
+                    type: TYPE,
+                    amount,
+                    targetDiscordId,
+                });
                 if (actualAmount === 0) {
                     return interaction.editReply({ content: `ℹ️ Already at maximum Karmapunkte (${oldValue}/${max})` });
                 }
                 const embed = createResourceEmbed(characterName, META, oldValue, newValue, max, 'restore')
-                    .setFooter({ text: `Restored by ${interaction.user.username}`, iconURL: interaction.user.avatarURL() })
+                    .setFooter({
+                        text: `Restored by ${interaction.user.username}`,
+                        iconURL: interaction.user.avatarURL(),
+                    })
                     .setTimestamp();
                 return interaction.editReply({ embeds: [embed] });
             }
@@ -86,7 +100,7 @@ module.exports = {
             if (error.status === 404) {
                 return interaction.editReply({
                     content: isSelf
-                        ? '❌ No character selected! Use `/choose-character` first.'
+                        ? '❌ No character selected! Use `/character select` first.'
                         : '❌ Target has no selected character.',
                 });
             }

@@ -16,7 +16,9 @@ module.exports = {
             const mobRows = await listMobs({ discordId: interaction.user.id });
 
             if (!mobRows || mobRows.length === 0) {
-                await interaction.editReply('ℹ️ No mob templates have been defined yet. Use `/add-mob` to create some.');
+                await interaction.editReply(
+                    'ℹ️ No mob templates have been defined yet. Use `/mob add` to create some.'
+                );
                 return;
             }
 

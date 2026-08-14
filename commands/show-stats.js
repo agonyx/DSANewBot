@@ -153,7 +153,7 @@ module.exports = {
         } catch (error) {
             if (error.status === 404) {
                 return interaction.reply({
-                    content: '❌ No character selected! Use `/choose-character` first.',
+                    content: '❌ No character selected! Use `/character select` first.',
                     ephemeral: true,
                 });
             }

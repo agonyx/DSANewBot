@@ -40,22 +40,22 @@ module.exports = {
             .addFields(
                 {
                     name: '👤 Character',
-                    value: '`/create-character` `/choose-character` `/show-stats` `/export-character` `/edit-stats` `/advance` `/schicksalspunkte` `/asp` `/kap` `/regeneration` `/treat-wounds` `/upload-avatar` `/delete-character`',
+                    value: '`/character` `/advance` `/schicksalspunkte` `/asp` `/kap` `/regeneration` `/treat-wounds`',
                     inline: false,
                 },
                 {
                     name: '⚔️ Combat',
-                    value: '`/start-combat` `/end-combat` `/park-combat` `/resume-combat` `/combat-log` `/attack` `/evade` `/use-skill` `/combat-action` `/condition` `/status` `/effect`',
+                    value: '`/combat` `/attack-check` `/evade-check` `/maneuver use` `/combat-action` `/condition` `/status` `/effect`',
                     inline: false,
                 },
                 {
                     name: '🎒 Items & Inventory',
-                    value: '`/show-items` `/add-item` `/edit-item` `/remove-item` `/use-item` `/heal`',
+                    value: '`/inventory` (aliases: `/inv`, `/items`)',
                     inline: false,
                 },
                 {
                     name: '🗡️ Weapons',
-                    value: '`/show-weapons` `/add-weapon` `/edit-weapon` `/equip-weapon` `/delete-weapon`',
+                    value: '`/weapon`',
                     inline: false,
                 },
                 {
@@ -65,17 +65,17 @@ module.exports = {
                 },
                 {
                     name: '📋 Skills',
-                    value: '`/show-skills` `/edit-skills` `/list-maneuvers` `/show-maneuver` `/probe`',
+                    value: '`/ability list` `/maneuver` `/probe`',
                     inline: false,
                 },
                 {
                     name: '🔮 Magic & Karma',
-                    value: '`/tradition` `/spells` `/liturgies` `/complete-casting` `/cancel-casting` `/miracle` `/supernatural-effects`',
+                    value: '`/tradition` `/spells` `/liturgies` `/casting` `/miracle`',
                     inline: false,
                 },
                 {
                     name: '👾 Mobs (DM Only)',
-                    value: '`/add-mob` `/edit-mob` `/delete-mob` `/show-mob` `/list-mobs`',
+                    value: '`/mob`',
                     inline: false,
                 },
                 {
@@ -89,7 +89,7 @@ module.exports = {
                     inline: false,
                 }
             )
-            .setFooter({ text: 'Use /help <category> for detailed information on a category.' });
+            .setFooter({ text: 'Use /help category:<category> for detailed information.' });
 
         return interaction.reply({ embeds: [helpEmbed], ephemeral: true });
     },
@@ -102,18 +102,22 @@ function getCategoryHelp(category) {
             .setTitle('👤 Character Commands')
             .setDescription('Manage your DSA character')
             .addFields(
-                { name: '/create-character', value: 'Create a new character' },
-                { name: '/choose-character', value: 'Select which of your characters to play' },
-                { name: '/show-stats', value: "View your character's stats and health" },
-                { name: '/export-character', value: 'Download the selected character sheet as a UTF-8 text file' },
-                { name: '/edit-stats', value: 'Interactively edit your stats' },
+                { name: '/character create', value: 'Create a new character' },
+                { name: '/character select', value: 'Select which of your characters to play' },
+                { name: '/character sheet', value: "View your selected character's complete sheet" },
+                { name: '/character edit', value: 'Interactively edit the selected character sheet' },
+                { name: '/character export', value: 'Download the selected character sheet as UTF-8 text' },
+                { name: '/character avatar', value: 'Upload a custom character avatar' },
+                { name: '/character delete', value: 'Permanently delete a character' },
+                {
+                    name: '/character restore-lep',
+                    value: 'Manually restore LeP to yourself, or another character as DM',
+                },
                 { name: '/schicksalspunkte', value: 'Spend, restore, set, or show Fate Points' },
                 { name: '/asp', value: 'Spend, restore, set, or show Astral Points' },
                 { name: '/kap', value: 'Spend, restore, set, or show Karma Points' },
                 { name: '/regeneration', value: 'Regenerate LeP, AsP, KaP, and one aggregate wound' },
                 { name: '/treat-wounds', value: 'Apply a Heilkunde Wunden treatment' },
-                { name: '/upload-avatar', value: 'Upload a custom character avatar' },
-                { name: '/delete-character', value: 'Permanently delete a character' },
                 {
                     name: '/advance',
                     value: 'Show/award AP and improve attributes, talents, supernatural FW, or abilities',
@@ -125,14 +129,14 @@ function getCategoryHelp(category) {
             .setTitle('⚔️ Combat Commands')
             .setDescription('Combat encounter management')
             .addFields(
-                { name: '/start-combat', value: 'Initialize a new combat encounter (DM)' },
-                { name: '/end-combat', value: 'End the current combat session' },
-                { name: '/park-combat', value: 'Pause combat to resume later' },
-                { name: '/resume-combat', value: 'Resume a paused combat session' },
-                { name: '/combat-log', value: 'Show the latest active or ended log for this channel' },
-                { name: '/attack', value: 'Make an attack roll' },
-                { name: '/evade', value: 'Attempt to dodge an attack' },
-                { name: '/use-skill', value: 'Use a combat skill/maneuver' },
+                { name: '/combat start', value: 'Initialize a new combat encounter' },
+                { name: '/combat end', value: 'End the current combat session as its DM' },
+                { name: '/combat pause', value: 'Pause combat to resume later' },
+                { name: '/combat resume', value: 'Resume a paused combat session' },
+                { name: '/combat log', value: 'Show the latest active or ended log for this channel' },
+                { name: '/attack-check', value: 'Make a standalone attack roll outside tracked combat' },
+                { name: '/evade-check', value: 'Make a standalone evasion roll outside tracked combat' },
+                { name: '/maneuver use', value: 'Use a combat maneuver' },
                 {
                     name: '/combat-action',
                     value: 'Use full defense, reload, escape, two-weapon, or opportunity actions',
@@ -147,12 +151,12 @@ function getCategoryHelp(category) {
             .setTitle('🎒 Items & Inventory Commands')
             .setDescription('Manage your inventory')
             .addFields(
-                { name: '/show-items', value: 'View your inventory' },
-                { name: '/add-item', value: 'Add an item to your inventory' },
-                { name: '/edit-item', value: 'Edit an owned item and its equipment metadata' },
-                { name: '/remove-item', value: 'Remove an item from inventory' },
-                { name: '/use-item', value: 'Use a consumable item (potions, food, etc.)' },
-                { name: '/heal', value: 'Restore HP to your character (or another as DM)' }
+                { name: '/inventory list', value: 'View your carried items and consumables' },
+                { name: '/inventory add', value: 'Add an item to your inventory' },
+                { name: '/inventory edit', value: 'Edit an owned item and its equipment metadata' },
+                { name: '/inventory remove', value: 'Remove an item from inventory' },
+                { name: '/inventory use', value: 'Use a consumable item (potions, food, etc.)' },
+                { name: '/inv and /items', value: 'Complete aliases for /inventory' }
             ),
 
         weapons: new EmbedBuilder()
@@ -160,11 +164,11 @@ function getCategoryHelp(category) {
             .setTitle('🗡️ Weapon Commands')
             .setDescription('Manage your weapons')
             .addFields(
-                { name: '/show-weapons', value: 'View your equipped weapons' },
-                { name: '/add-weapon', value: 'Add a new weapon to your character' },
-                { name: '/edit-weapon', value: 'Edit weapon stats, ranges, reload, and hand requirement' },
-                { name: '/equip-weapon', value: 'Equip a weapon to a slot' },
-                { name: '/delete-weapon', value: 'Remove a weapon permanently' }
+                { name: '/weapon list', value: 'View your weapons' },
+                { name: '/weapon add', value: 'Add a new weapon to your character' },
+                { name: '/weapon edit', value: 'Edit weapon stats, ranges, reload, and hand requirement' },
+                { name: '/weapon equip', value: 'Equip a weapon to a slot' },
+                { name: '/weapon delete', value: 'Remove a weapon permanently' }
             ),
 
         skills: new EmbedBuilder()
@@ -172,10 +176,11 @@ function getCategoryHelp(category) {
             .setTitle('📋 Skill Commands')
             .setDescription('Combat skills and maneuvers')
             .addFields(
-                { name: '/show-skills', value: 'View learned combat, magical, and karmic special abilities' },
-                { name: '/edit-skills', value: 'Legacy alias: learn a special ability using the AP workflow' },
-                { name: '/list-maneuvers', value: 'Browse the combat maneuver catalog' },
-                { name: '/show-maneuver', value: 'Show rules and prerequisites for a maneuver' },
+                { name: '/ability list', value: 'View learned combat, magical, and karmic special abilities' },
+                { name: '/advance special', value: 'Learn a special ability by spending AP' },
+                { name: '/maneuver list', value: 'Browse the combat maneuver catalog' },
+                { name: '/maneuver show', value: 'Show rules and prerequisites for a maneuver' },
+                { name: '/maneuver use', value: 'Use a learned maneuver in combat' },
                 { name: '/probe', value: 'Roll a learned talent probe with optional modifier' }
             ),
 
@@ -190,10 +195,10 @@ function getCategoryHelp(category) {
                 },
                 { name: '/spells', value: 'Browse, learn, inspect, and cast spells or rituals' },
                 { name: '/liturgies', value: 'Browse, learn, inspect, and perform liturgies or ceremonies' },
-                { name: '/complete-casting', value: 'Complete a finished extended ritual or ceremony' },
-                { name: '/cancel-casting', value: 'Interrupt an extended casting and recover half its resource cost' },
+                { name: '/casting complete', value: 'Complete a finished extended ritual or ceremony' },
+                { name: '/casting cancel', value: 'Interrupt an extended casting and recover half its resource cost' },
                 { name: '/miracle', value: 'Spend 4 KaP for +2 to a favored talent, next AT, or next PA' },
-                { name: '/supernatural-effects', value: 'Show pending castings and active tracked effects' },
+                { name: '/casting status', value: 'Show pending castings and active tracked effects' },
                 { name: '/asp', value: 'Manage the Astral Point pool used by spells' },
                 { name: '/kap', value: 'Manage the Karma Point pool used by liturgies and miracles' }
             ),
@@ -215,11 +220,11 @@ function getCategoryHelp(category) {
             .setTitle('👾 Mob Commands (DM Only)')
             .setDescription('Create and manage NPC templates for combat')
             .addFields(
-                { name: '/add-mob', value: 'Create a new mob template' },
-                { name: '/edit-mob', value: 'Edit an existing mob template' },
-                { name: '/delete-mob', value: 'Delete an existing mob template' },
-                { name: '/show-mob', value: 'View mob template details' },
-                { name: '/list-mobs', value: 'List all available mob templates' }
+                { name: '/mob add', value: 'Create a new mob template (Manage Server)' },
+                { name: '/mob edit', value: 'Edit an existing mob template (Manage Server)' },
+                { name: '/mob delete', value: 'Delete an existing mob template (Manage Server)' },
+                { name: '/mob show', value: 'View mob template details' },
+                { name: '/mob list', value: 'List all available mob templates' }
             ),
 
         regelwiki: new EmbedBuilder()

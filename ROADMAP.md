@@ -10,11 +10,11 @@ Feature audit and development roadmap for becoming a complete DSA 5th Edition ta
 
 | Feature             | Command(s)          | Details                                        |
 | ------------------- | ------------------- | ---------------------------------------------- |
-| Character Creation  | `/create-character` | Creates player with name                       |
-| Character Selection | `/choose-character` | Multi-character support per Discord user       |
-| Character Deletion  | `/delete-character` | Remove characters                              |
-| Avatar Upload       | `/upload-avatar`    | Custom character portraits (Supabase storage)  |
-| Character Export    | `/export-character` | Download a complete UTF-8 text character sheet |
+| Character Creation  | `/character create` | Creates player with name                       |
+| Character Selection | `/character select` | Multi-character support per Discord user       |
+| Character Deletion  | `/character delete` | Remove characters                              |
+| Avatar Upload       | `/character avatar` | Custom character portraits (Supabase storage)  |
+| Character Export    | `/character export` | Download a complete UTF-8 text character sheet |
 
 ### Attributes & Stats
 
@@ -25,7 +25,7 @@ Feature audit and development roadmap for becoming a complete DSA 5th Edition ta
 | Initiative         | `stats.initiative`                 | Base initiative value                      |
 | Armor Soak (RS)    | `stats.ruestungsschutz`            | Natural plus equipped armor, synchronized  |
 | Dodge (Ausweichen) | `stats.ausweichen`                 | Evasion value                              |
-| Interactive Editor | `/edit-stats`                      | Modal-based stat editing with live updates |
+| Interactive Editor | `/character edit`                  | Modal-based stat editing with live updates |
 
 ### Talent Probes (3d20 System)
 
@@ -41,7 +41,7 @@ Feature audit and development roadmap for becoming a complete DSA 5th Edition ta
 
 | Feature             | Location                           | Details                                                                |
 | ------------------- | ---------------------------------- | ---------------------------------------------------------------------- |
-| Session Setup       | `/start-combat`                    | SETUP phase with join/add mobs                                         |
+| Session Setup       | `/combat start`                    | SETUP phase with join/add mobs                                         |
 | Initiative Rolling  | `combatSetupHandler.js`            | 1d6 + base initiative                                                  |
 | Turn Order          | `turn_order` array                 | Sorted by initiative, ties by base                                     |
 | Attack Resolution   | `combatUtils.js`                   | d20 vs AT with crit/botch                                              |
@@ -54,58 +54,60 @@ Feature audit and development roadmap for becoming a complete DSA 5th Edition ta
 | DM NPC Control      | `npcHandler.js`                    | DM controls hostile NPCs                                               |
 | Combat Log          | `combat_sessions.combat_log`       | Recent events display                                                  |
 | Session Persistence | `recoverActiveCombats()`           | Bot restart recovery                                                   |
-| Pause/Resume        | `/park-combat`, `/resume-combat`   | Park active sessions                                                   |
+| Pause/Resume        | `/combat pause`, `/combat resume`  | Park and resume active sessions                                        |
 | Wounds & Threshold  | `woundUtils.ts`, combat resolution | Aggregate wounds tracked separately from LP; threshold derived from KO |
 
 ### Weapons & Equipment
 
 | Feature         | Command(s)                 | Details                    |
 | --------------- | -------------------------- | -------------------------- |
-| Weapon Creation | `/add-weapon`              | Name, type, TP, AT, PA     |
+| Weapon Creation | `/weapon add`              | Name, type, TP, AT, PA     |
 | Weapon Types    | MELEE, RANGED              | Type classification        |
 | Equipment Slots | ADAPTIVE, OFFENSE, DEFENSE | DSA 5e slot system         |
-| Equip Weapons   | `/equip-weapon`            | Interactive slot selection |
-| Delete Weapons  | `/delete-weapon`           | Remove from inventory      |
-| View Weapons    | `/show-weapons`            | Categorized display        |
+| Equip Weapons   | `/weapon equip`            | Interactive slot selection |
+| Delete Weapons  | `/weapon delete`           | Remove from inventory      |
+| View Weapons    | `/weapon list`             | Categorized display        |
 
 ### Inventory System
 
 | Feature        | Command(s)                                          | Details                         |
 | -------------- | --------------------------------------------------- | ------------------------------- |
-| Item Creation  | `/add-item`                                         | Name, type, effect, description |
+| Item Creation  | `/inventory add`                                    | Name, type, effect, description |
 | Item Types     | POTION, FOOD, SCROLL, WEAPON, ARMOR, VALUABLE, MISC | 7 categories                    |
 | Item Stacking  | Auto-stacks same name+type                          | Quantity tracking               |
-| Use Items      | `/use-item`                                         | Dice-based effect resolution    |
-| Remove Items   | `/remove-item`                                      | Delete from inventory           |
-| View Inventory | `/show-items`                                       | Grouped by type                 |
+| Use Items      | `/inventory use`                                    | Dice-based effect resolution    |
+| Remove Items   | `/inventory remove`                                 | Delete from inventory           |
+| View Inventory | `/inventory list`                                   | Grouped by type                 |
+
+`/inv` and `/items` are complete aliases for every `/inventory` subcommand.
 
 ### NPC/Mob Templates
 
 | Feature          | Command(s)        | Details                            |
 | ---------------- | ----------------- | ---------------------------------- |
-| Mob Creation     | `/add-mob`        | HP, INI, AT, PA, RS, TP            |
-| List Mobs        | `/list-mobs`      | DM reference                       |
-| View Mob Details | `/show-mob`       | Full stat block with autocomplete  |
-| Edit Mobs        | `/edit-mob`       | Update templates with autocomplete |
+| Mob Creation     | `/mob add`        | HP, INI, AT, PA, RS, TP            |
+| List Mobs        | `/mob list`       | DM reference                       |
+| View Mob Details | `/mob show`       | Full stat block with autocomplete  |
+| Edit Mobs        | `/mob edit`       | Update templates with autocomplete |
 | Add to Combat    | Setup phase modal | Instantiates from template         |
 
 ### Skills/Combat Maneuvers
 
-| Feature          | Command(s)                         | Details                            |
-| ---------------- | ---------------------------------- | ---------------------------------- |
-| Ability Learning | `/advance special`, `/edit-skills` | AP-backed with prerequisite checks |
-| View Skills      | `/show-skills`                     | List learned maneuvers             |
-| Use in Combat    | `/use-skill`                       | Applies AT/PA/damage mods          |
+| Feature          | Command(s)         | Details                            |
+| ---------------- | ------------------ | ---------------------------------- |
+| Ability Learning | `/advance special` | AP-backed with prerequisite checks |
+| View Skills      | `/ability list`    | List learned abilities             |
+| Use in Combat    | `/maneuver use`    | Applies AT/PA/damage mods          |
 
 ### Utility Commands
 
-| Feature      | Command(s) | Details                                  |
-| ------------ | ---------- | ---------------------------------------- |
-| Dice Rolling | `/roll`    | DSA notation (1w20, 3w6+2)               |
-| Dice Macros  | `/macro`   | Save, list, roll, and delete expressions |
-| Healing      | `/heal`    | HP restoration (self or DM heal others)  |
-| Evasion      | `/evade`   | d20 vs Ausweichen                        |
-| Help         | `/help`    | Command reference                        |
+| Feature      | Command(s)               | Details                                  |
+| ------------ | ------------------------ | ---------------------------------------- |
+| Dice Rolling | `/roll`                  | DSA notation (1w20, 3w6+2)               |
+| Dice Macros  | `/macro`                 | Save, list, roll, and delete expressions |
+| Healing      | `/character restore-lep` | Manual LeP restoration (self or DM)      |
+| Evasion      | `/evade-check`           | Standalone d20 vs Ausweichen             |
+| Help         | `/help`                  | Command reference                        |
 
 ---
 

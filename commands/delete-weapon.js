@@ -77,7 +77,7 @@ module.exports = {
             });
         } catch (error) {
             if (error.status === 404) {
-                return interaction.editReply({ content: 'No selected character! Use /choose-character first' });
+                return interaction.editReply({ content: 'No selected character! Use `/character select` first.' });
             }
             log.error({ error }, 'Delete weapon error');
             interaction.editReply({

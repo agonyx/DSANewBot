@@ -81,6 +81,6 @@ remain in `combat-maneuvers-reference.md`, `additional-combat-maneuvers.md`,
 
 Combat sessions, defense/reload state, hit location, all three effect classes,
 and the combat log survive bot restart. The latest active or ended log for a
-channel is available through `/combat-log` and the combat API. The database is
+channel is available through `/combat log` and the combat API. The database is
 the source of truth; the Discord in-memory mirror is refreshed after turn
 transitions rather than owning transient mechanics.
