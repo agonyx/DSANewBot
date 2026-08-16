@@ -10,6 +10,24 @@ const commandsPath = path.join(__dirname, '..', 'commands');
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
 const modules = [];
 
+function assertRequiredOptionOrder(options = [], commandPath) {
+    let optionalSeen = false;
+    for (const option of options) {
+        if (option.type === 1 || option.type === 2) {
+            assertRequiredOptionOrder(option.options || [], `${commandPath} ${option.name}`);
+            continue;
+        }
+        if (option.required === true) {
+            assert(
+                !optionalSeen,
+                `${commandPath}: required option "${option.name}" must be declared before optional options`
+            );
+        } else {
+            optionalSeen = true;
+        }
+    }
+}
+
 for (const file of commandFiles) {
     const command = require(path.join(commandsPath, file));
     if (!command.data || typeof command.execute !== 'function') {
@@ -18,6 +36,7 @@ for (const file of commandFiles) {
 
     const metadata = command.data.toJSON();
     if (!metadata.name) throw new Error(`${file} has no command name`);
+    assertRequiredOptionOrder(metadata.options || [], `/${metadata.name}`);
     modules.push({ file, metadata });
 }
 

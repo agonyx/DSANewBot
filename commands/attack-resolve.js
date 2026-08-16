@@ -12,11 +12,11 @@ const data = new SlashCommandBuilder()
     .addStringOption(option =>
         option.setName('target').setDescription('Target combatant').setRequired(true).setAutocomplete(true)
     )
-    .addStringOption(option =>
-        option.setName('maneuver').setDescription('Optional learned maneuver').setAutocomplete(true)
-    )
     .addBooleanOption(option =>
         option.setName('confirm').setDescription('Confirm this mutating combat action').setRequired(true)
+    )
+    .addStringOption(option =>
+        option.setName('maneuver').setDescription('Optional learned maneuver').setAutocomplete(true)
     );
 addVisibilityOption(data);
 
