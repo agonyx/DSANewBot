@@ -1,6 +1,7 @@
 require('dotenv').config();
 
 const { searchRules } = require('../utils/rulesClient');
+const { closeDb } = require('../db');
 
 async function main() {
     const query = process.argv.slice(2).join(' ');
@@ -22,4 +23,9 @@ async function main() {
     }
 }
 
-main().catch(console.error);
+main()
+    .catch(error => {
+        console.error(error);
+        process.exitCode = 1;
+    })
+    .finally(closeDb);

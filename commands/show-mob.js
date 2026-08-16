@@ -2,21 +2,24 @@ const { SlashCommandBuilder } = require('discord.js');
 const { getMob, listMobs } = require('../services/mobs');
 const { createLogger } = require('../utils/logger');
 const { createEmbed, truncateText } = require('../utils/embedUtils');
+const { addVisibilityOption, deferWithVisibility } = require('../utils/interactionVisibility');
 const log = createLogger('show-mob');
 
 module.exports = {
-    data: new SlashCommandBuilder()
-        .setName('show-mob')
-        .setDescription('Display the details of a specific mob template.')
-        .addStringOption(option =>
-            option
-                .setName('name')
-                .setDescription('The exact name of the mob template to show.')
-                .setRequired(true)
-                .setMaxLength(100)
-                .setAutocomplete(true)
-        )
-        .setDMPermission(false),
+    data: addVisibilityOption(
+        new SlashCommandBuilder()
+            .setName('show-mob')
+            .setDescription('Display the details of a specific mob template.')
+            .addStringOption(option =>
+                option
+                    .setName('name')
+                    .setDescription('The exact name of the mob template to show.')
+                    .setRequired(true)
+                    .setMaxLength(100)
+                    .setAutocomplete(true)
+            )
+            .setDMPermission(false)
+    ),
 
     async autocomplete(interaction) {
         const focusedValue = interaction.options.getFocused();
@@ -32,7 +35,7 @@ module.exports = {
     },
 
     async execute(interaction) {
-        await interaction.deferReply({ ephemeral: true });
+        await deferWithVisibility(interaction);
         const mobName = interaction.options.getString('name');
 
         try {

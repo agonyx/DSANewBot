@@ -8,6 +8,7 @@ import { db } from '../index';
 import { combatSessions, combatants, stats } from '../schema';
 import { httpError } from './errors';
 import { calculateWoundThreshold } from '../../utils/woundUtils';
+import { CREATURE_SIZES, type CreatureSize } from '../../utils/combatEffectUtils';
 
 export interface CreateCombatantInput {
     sessionId: string;
@@ -22,6 +23,7 @@ export interface CreateCombatantInput {
     wounds?: number;
     woundThreshold?: number | null;
     initiativeBase?: number;
+    creatureSize?: CreatureSize;
 }
 
 /** Add a combatant to a session (validates state + prevents duplicate Discord users). */
@@ -39,6 +41,7 @@ export async function createCombatant(input: CreateCombatantInput) {
         wounds: requestedWounds,
         woundThreshold: requestedWoundThreshold,
         initiativeBase,
+        creatureSize = 'medium',
     } = input;
 
     if (!sessionId || !type || !allegiance || !name || maxHp === undefined || currentHp === undefined) {
@@ -75,6 +78,7 @@ export async function createCombatant(input: CreateCombatantInput) {
     if (woundThreshold !== null && (!Number.isInteger(woundThreshold) || woundThreshold < 0)) {
         throw httpError(400, 'woundThreshold must be a non-negative integer or null');
     }
+    if (!CREATURE_SIZES.includes(creatureSize)) throw httpError(400, 'Invalid creature size');
 
     const [combatant] = await db
         .insert(combatants)
@@ -91,6 +95,7 @@ export async function createCombatant(input: CreateCombatantInput) {
             wounds,
             wound_threshold: woundThreshold && woundThreshold > 0 ? woundThreshold : null,
             initiative_base: effectiveInitiativeBase,
+            creature_size: creatureSize,
         })
         .returning();
 

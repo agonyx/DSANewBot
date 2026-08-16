@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Ctx } from '../../services/_ctx';
 import * as characters from '../../services/characters';
 import { exportCharacterSheet } from '../../services/characterExports';
+import { importCharacter } from '../../services/characterRecords';
 
 type AppEnv = { Variables: { ctx: Ctx } };
 
@@ -26,6 +27,11 @@ characterRoutes.get('/me/export', async c => {
     c.header('Content-Type', 'text/plain; charset=utf-8');
     c.header('Content-Disposition', `attachment; filename="${result.filename}"`);
     return c.body(result.text);
+});
+
+characterRoutes.post('/import', async c => {
+    const body = await c.req.json<unknown>();
+    return c.json(await importCharacter(c.get('ctx'), body, c.req.query('guildId')), 201);
 });
 
 characterRoutes.post('/:id/select', async c => {

@@ -6,7 +6,7 @@ Guide for AI agents working in the DSANewBot codebase.
 
 A Discord bot for **DSA (Das Schwarze Auge) 5th Edition** tabletop RPG combat management. This bot handles character management, combat encounters, initiative tracking, and dice rolling for DSA 5e mechanics.
 
-**Architecture**: Discord bot frontend + Supabase backend. The bot uses Supabase for database storage and Edge Functions for complex operations.
+**Architecture**: Discord bot + Hono API frontend, a shared service layer, and self-hosted PostgreSQL 16 with pgvector. Drizzle defines the schema and `DATABASE_URL` is the runtime connection.
 
 ## Essential Commands
 
@@ -31,10 +31,10 @@ Create a `.env` file with:
 - `DISCORD_TOKEN` - Bot token from Discord Developer Portal
 - `CLIENT_ID` - Application ID from Discord Developer Portal
 - `GUILD_ID` - Discord server ID (for guild command deployment)
-- `SUPABASE_URL` - Supabase project URL (e.g., `https://yourproject.supabase.co`)
-- `SUPABASE_ANON_KEY` - Supabase anonymous key from project settings
-- `SUPABASE_SERVICE_KEY` - Supabase service role key (for DB writes / import scripts)
+- `DATABASE_URL` - PostgreSQL connection string used by the bot, API, migrations, seeds, and rule importer
 - `OPENAI_API_KEY` - OpenAI API key (for generating embeddings)
+- `DISCORD_CLIENT_SECRET`, `JWT_SECRET`, `OAUTH_REDIRECT_URI` - OAuth/API authentication
+- `WEBHOOK_SIGNING_SECRET` - HMAC-SHA256 secret for outbound integration events
 
 ## Code Organization
 
@@ -70,7 +70,9 @@ module.exports = {
 ```
 
 Related public operations use noun roots with subcommands (`/character`,
-`/combat`, `/inventory`, `/weapon`, `/mob`, `/maneuver`, and `/casting`). The
+`/combat`, `/inventory`, `/weapon`, `/mob`, `/maneuver`, `/casting`, `/party`,
+`/initiative`, `/session-notes`, `/campaign`, `/companion`, `/crafting`,
+`/background`, and `/alchemy`). The
 legacy leaf modules remain internal handler implementations and are filtered by
 `utils/commandRegistration.js`. Use `utils/delegatedCommand.js` when adding a
 subcommand backed by an existing leaf handler. `/inventory`, `/inv`, and `/items`
@@ -100,16 +102,12 @@ are intentionally identical aliases.
 | `park_combat_`   | Park session                | Pause combat          |
 | `end_combat_`    | End session                 | Terminate combat      |
 
-### Supabase Communication
+### Service and Database Layers
 
-- Database client via `@supabase/supabase-js` in `utils/supabaseClient.js`
-- Direct table queries using `supabase.from('table_name')` for CRUD operations
-- Edge Functions via `callEdgeFunction(functionName, payload)` for complex operations:
-    - `create-player` - Creates player with stats, weapons, talents
-    - `create-combatant` - Creates combatant in active session
-    - `end-combat` - Ends combat session
-    - `equip-weapon` - Updates weapon equipped status
-    - `set-selected-player` - Sets active character for user
+- Commands and API routes call the shared modules in `services/`.
+- Services use Drizzle operations through `db/index.ts`; new code should not query a legacy Supabase client directly.
+- Multi-step mutations belong in database transactions and accept a uniform `Ctx` authorization object.
+- `db/edgeBridge.ts` is a compatibility seam for remaining legacy calls, not the pattern for new work.
 
 ### In-Memory State
 
@@ -187,7 +185,7 @@ Supports DSA notation: `XwY+Z` (X dice of Y sides plus Z bonus)
 4. Export handler from combatHandler if needed elsewhere
 5. Update `updateCombatDisplay()` if new buttons should appear on combat message
 
-## Supabase Schema
+## PostgreSQL Schema
 
 Key database tables:
 
@@ -197,6 +195,12 @@ Key database tables:
 - `combatants` - Participants in a combat session
 - `combatant_conditions` - Active conditions (Zustände) per combatant — leveled (Stufe I-IV), with duration tracking
 - `combatant_statuses` - Active status effects per combatant — binary (on/off), with duration tracking
+- `party_memberships` - Explicit guild-scoped character enrollment used by DM party views
+- `initiative_trackers` - Persistent channel-scoped turn order for non-combat scenes
+- `session_notes` - Persistent guild-scoped DM campaign notes
+- `campaign_records`, `campaign_worlds` - Typed campaign content plus world time/weather
+- `character_records` - Companions, mounts, backgrounds, reputation, crafting, and brewing
+- `webhook_subscriptions` - Redacted, signed outbound campaign integrations
 - `action_modifications` - Combat maneuvers/skills with modifiers
 - `talents` - DSA talent definitions
 - `rule_pages` - Canonical rule documents from Regelwiki scraper (7,196 pages)
@@ -241,7 +245,7 @@ data/embeddings/
   canonical_documents.jsonl        →  8,027 page-level documents
   chunks.jsonl                     →  11,370 text chunks for embedding
   ↓ scripts/import-rules-v3.js
-Supabase
+PostgreSQL + pgvector
   rule_pages                       →  7,196 canonical documents (unresolved filtered)
   rule_chunks                      →  10,426 chunks with vector(1536) embeddings
   match_rule_chunks()              →  Semantic search RPC function
@@ -254,8 +258,8 @@ Bot runtime                        →  searchRules(), getRulesByCategory(), get
 | File                              | Purpose                                                                        |
 | --------------------------------- | ------------------------------------------------------------------------------ |
 | `utils/rulesClient.js`            | Rules search API — `searchRules()`, `getRulesByCategory()`, `getRuleByTitle()` |
-| `utils/ruleImportTransforms.js`   | Transforms scraper JSONL into Supabase row shapes                              |
-| `scripts/import-rules-v3.js`      | Imports scraper output into Supabase + generates embeddings                    |
+| `utils/ruleImportTransforms.js`   | Transforms scraper JSONL into PostgreSQL row shapes                            |
+| `scripts/import-rules-v3.js`      | Resumably imports scraper output into PostgreSQL + generates embeddings        |
 | `scripts/query-rules.js`          | CLI tool to test semantic search                                               |
 | `scripts/embed-rules.js`          | Legacy markdown-based embedding script (deprecated)                            |
 | `DSA5WikiScraper/dsa_scraper_v3/` | The scraper pipeline (Python)                                                  |
@@ -281,10 +285,14 @@ node scripts/import-rules-v3.js --dry-run
 
 # Include unresolved/ambiguous pages
 node scripts/import-rules-v3.js --include-unresolved
+
+# Recreate embeddings even when a stored chunk already has one
+node scripts/import-rules-v3.js --force-reembed
 ```
 
 ### Current Integration Status
 
 The rules search infrastructure is wired into the `/regel` Discord command and
-authenticated rules API. Useful semantic results still depend on importing the
-`rule_pages` and `rule_chunks` corpus into the target database.
+authenticated rules API. The importer uses direct PostgreSQL when `DATABASE_URL`
+is set, skips already embedded chunks on retries, and retains the legacy Supabase
+backend only as a fallback.

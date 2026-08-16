@@ -6,7 +6,7 @@ const {
     standUp,
     takeFullDefense,
 } = require('../services/combat');
-const { nextTurn, resolveCombatAction } = require('../handlers/combatTurnHandler');
+const { nextTurn, resolveCombatAction, updateCombatDisplay } = require('../handlers/combatTurnHandler');
 const { createLogger } = require('../utils/logger');
 
 const log = createLogger('combat-action');
@@ -14,7 +14,7 @@ const log = createLogger('combat-action');
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('combat-action')
-        .setDescription('Use a defensive, reload, grapple, or opportunity combat action')
+        .setDescription('Use a special action; the combat panel exposes these without slash commands')
         .addSubcommand(sub =>
             sub.setName('full-defense').setDescription('Spend the turn for +4 PA until your next turn')
         )
@@ -25,19 +25,36 @@ module.exports = {
             sub
                 .setName('two-weapon')
                 .setDescription('Attack once with each equipped one-handed melee weapon')
-                .addUserOption(option => option.setName('target').setDescription('First target').setRequired(true))
-                .addUserOption(option =>
-                    option.setName('second_target').setDescription('Optional target for the off-hand attack')
+                .addStringOption(option =>
+                    option
+                        .setName('target')
+                        .setDescription('First combatant target')
+                        .setRequired(true)
+                        .setAutocomplete(true)
+                )
+                .addStringOption(option =>
+                    option.setName('second_target').setDescription('Optional second combatant').setAutocomplete(true)
                 )
         )
         .addSubcommand(sub =>
             sub
                 .setName('opportunity')
                 .setDescription('Use a granted unopposed Passierschlag at AT -4')
-                .addUserOption(option =>
-                    option.setName('target').setDescription('Opportunity target').setRequired(true)
+                .addStringOption(option =>
+                    option.setName('target').setDescription('Combatant target').setRequired(true).setAutocomplete(true)
                 )
         ),
+
+    async autocomplete(interaction) {
+        const session = interaction.client.activeCombats?.get(interaction.channelId);
+        const focused = String(interaction.options.getFocused() || '').toLowerCase();
+        return interaction.respond(
+            (session?.combatants || [])
+                .filter(combatant => combatant.currentHP > 0 && combatant.name.toLowerCase().includes(focused))
+                .slice(0, 25)
+                .map(combatant => ({ name: combatant.name.slice(0, 100), value: combatant.id }))
+        );
+    },
 
     async execute(interaction) {
         await interaction.deferReply({ ephemeral: true });
@@ -51,9 +68,10 @@ module.exports = {
         const subcommand = interaction.options.getSubcommand();
         try {
             if (subcommand === 'opportunity') {
-                const targetUser = interaction.options.getUser('target');
-                const target = session.combatants.find(combatant => combatant.discordUserId === targetUser.id);
-                if (!target) return interaction.editReply('❌ The target is not a player combatant in this encounter.');
+                const target = session.combatants.find(
+                    combatant => combatant.id === interaction.options.getString('target')
+                );
+                if (!target) return interaction.editReply('❌ The target combatant is not in this encounter.');
                 await resolveCombatAction(
                     interaction.client,
                     interaction.channelId,
@@ -71,18 +89,26 @@ module.exports = {
             }
 
             if (subcommand === 'two-weapon') {
-                const firstUser = interaction.options.getUser('target');
-                const secondUser = interaction.options.getUser('second_target') ?? firstUser;
-                const firstTarget = session.combatants.find(combatant => combatant.discordUserId === firstUser.id);
-                const secondTarget = session.combatants.find(combatant => combatant.discordUserId === secondUser.id);
+                const firstId = interaction.options.getString('target');
+                const secondId = interaction.options.getString('second_target') ?? firstId;
+                const firstTarget = session.combatants.find(combatant => combatant.id === firstId);
+                const secondTarget = session.combatants.find(combatant => combatant.id === secondId);
                 if (!firstTarget || !secondTarget) {
-                    return interaction.editReply('❌ Each target must be a player combatant in this encounter.');
+                    return interaction.editReply('❌ Each target must be a combatant in this encounter.');
                 }
                 const result = await resolveTwoWeaponAttackAction(ctx, {
                     sessionId: session.id,
                     attackerId: actor.id,
                     targetIds: [firstTarget.id, secondTarget.id],
                 });
+                if (result.status === 'PENDING') {
+                    await updateCombatDisplay(interaction.client, interaction.channelId);
+                    return interaction.editReply(
+                        result.attacks.length
+                            ? '🛡️ Main-hand attack resolved; waiting for the second defense decision.'
+                            : '🛡️ Main-hand attack hit; waiting for the defender to choose.'
+                    );
+                }
                 await nextTurn(interaction.client, interaction.channelId);
                 const summary = result.attacks
                     .map(

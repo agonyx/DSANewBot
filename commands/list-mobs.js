@@ -2,16 +2,19 @@ const { SlashCommandBuilder } = require('discord.js');
 const { listMobs } = require('../services/mobs');
 const { createLogger } = require('../utils/logger');
 const { buildMobListEmbeds } = require('../utils/embedViews');
+const { addVisibilityOption, deferWithVisibility } = require('../utils/interactionVisibility');
 const log = createLogger('list-mobs');
 
 module.exports = {
-    data: new SlashCommandBuilder()
-        .setName('list-mobs')
-        .setDescription('Lists available mob templates defined for combat.')
-        .setDMPermission(false),
+    data: addVisibilityOption(
+        new SlashCommandBuilder()
+            .setName('list-mobs')
+            .setDescription('Lists available mob templates defined for combat.')
+            .setDMPermission(false)
+    ),
 
     async execute(interaction) {
-        await interaction.deferReply({ ephemeral: true });
+        await deferWithVisibility(interaction);
 
         try {
             const mobRows = await listMobs({ discordId: interaction.user.id });

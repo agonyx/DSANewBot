@@ -10,9 +10,13 @@ const {
     buildAbilityListEmbeds,
     buildCharacterStatsEmbed,
     buildInventoryEmbeds,
+    buildInitiativeTrackerEmbeds,
     buildManeuverDetailEmbed,
     buildManeuverListEmbeds,
     buildMobListEmbeds,
+    buildPartyOverviewEmbeds,
+    buildSessionNoteEmbed,
+    buildSessionNoteListEmbeds,
     buildWeaponEmbeds,
 } = require('../utils/embedViews');
 
@@ -200,5 +204,66 @@ describe('embedViews', () => {
             expectValidEmbeds(embeds);
             expect(embeds.map(embed => embed.toJSON().description).join('\n')).toContain(finalResult);
         }
+    });
+
+    test('party overview stays guild-readable and paginates large parties', () => {
+        const party = Array.from({ length: 90 }, (_, index) => ({
+            discordId: `user-${index + 1}`,
+            name: `Hero ${index + 1}`,
+            initiative: 10 + (index % 5),
+            leCurrent: 25,
+            leMax: 30,
+            wounds: index % 3,
+            aspCurrent: 12,
+            aspMax: 20,
+            kapCurrent: 0,
+            kapMax: 0,
+            fateCurrent: 2,
+            fateMax: 3,
+        }));
+        const embeds = buildPartyOverviewEmbeds(party, user);
+        const text = embeds.map(embed => embed.toJSON().description).join('\n');
+
+        expectValidEmbeds(embeds);
+        expect(text).toContain('<@user-1> — **Hero 1**');
+        expect(text).toContain('<@user-90> — **Hero 90**');
+    });
+
+    test('initiative tracker clearly marks the active entry and round', () => {
+        const embeds = buildInitiativeTrackerEmbeds(
+            {
+                title: 'Chase through Gareth',
+                current_round: 2,
+                current_entry_index: 1,
+                entries: [
+                    { id: 'a', name: 'Alrik', baseInitiative: 12, roll: 5, total: 17 },
+                    { id: 'b', name: 'Cultist', baseInitiative: 14, roll: null, total: 14 },
+                ],
+            },
+            user
+        );
+        const body = embeds[0].toJSON().description;
+
+        expectValidEmbeds(embeds);
+        expect(body).toContain('**Round 2**');
+        expect(body).toContain('▶ **2. Cultist** — **14** · manual');
+    });
+
+    test('session note detail and large lists stay within Discord payload limits', () => {
+        const notes = Array.from({ length: 100 }, (_, index) => ({
+            id: `note-${index + 1}`,
+            title: `Session ${index + 1}`,
+            body: `The heroes followed clue ${index + 1}. ${'A'.repeat(160)}`,
+            session_date: `2026-08-${String((index % 28) + 1).padStart(2, '0')}`,
+            created_at: new Date('2026-08-01T12:00:00Z'),
+            updated_at: new Date('2026-08-02T12:00:00Z'),
+        }));
+        const list = buildSessionNoteListEmbeds(notes, user);
+        const detail = buildSessionNoteEmbed({ ...notes[0], body: 'B'.repeat(4000) }, user);
+
+        expectValidEmbeds(list);
+        expectValidEmbeds([detail]);
+        expect(list.map(embed => embed.toJSON().description).join('\n')).toContain('Session 100');
+        expect(detail.toJSON().description).toHaveLength(4000);
     });
 });

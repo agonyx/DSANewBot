@@ -31,7 +31,7 @@ export const STATUS_TYPES = [
 ] as const;
 
 export const DURATION_TYPES = ['rounds', 'minutes', 'hours', 'rest', 'permanent'] as const;
-export const CREATURE_SIZES = ['small', 'medium', 'large'] as const;
+export const CREATURE_SIZES = ['tiny', 'small', 'medium', 'large', 'huge'] as const;
 export const HIT_ZONES = ['head', 'torso', 'left_arm', 'right_arm', 'left_leg', 'right_leg'] as const;
 export const RANGE_BANDS = ['close', 'medium', 'far'] as const;
 
@@ -230,9 +230,9 @@ export function getCalledShotPenalty(zone: HitZone): number {
 export function resolveHumanoidHitZone(roll: number, size: CreatureSize = 'medium'): HitZone {
     const normalized = Math.min(20, Math.max(1, integer(roll, 1)));
     let region: 'head' | 'torso' | 'arms' | 'legs';
-    if (size === 'small')
+    if (size === 'tiny' || size === 'small')
         region = normalized <= 6 ? 'head' : normalized <= 10 ? 'torso' : normalized <= 18 ? 'arms' : 'legs';
-    else if (size === 'large')
+    else if (size === 'large' || size === 'huge')
         region = normalized <= 2 ? 'head' : normalized <= 6 ? 'torso' : normalized <= 16 ? 'arms' : 'legs';
     else region = normalized <= 2 ? 'head' : normalized <= 12 ? 'torso' : normalized <= 16 ? 'arms' : 'legs';
     if (region === 'head' || region === 'torso') return region;
@@ -241,8 +241,8 @@ export function resolveHumanoidHitZone(roll: number, size: CreatureSize = 'mediu
 }
 
 export function getRangePenalty(rangeBand: RangeBand): number {
-    if (rangeBand === 'medium') return -2;
-    if (rangeBand === 'far') return -4;
+    if (rangeBand === 'close') return 2;
+    if (rangeBand === 'far') return -2;
     return 0;
 }
 

@@ -1,4 +1,4 @@
-# Discord Embed UX
+# Discord Presentation UX
 
 ## Audit scope and outcome
 
@@ -15,13 +15,35 @@ The implementation now routes every runtime embed through `utils/embedUtils.js`.
 
 ## Choosing a presentation
 
-| Data shape                  | Presentation                             | Examples                                                   |
-| --------------------------- | ---------------------------------------- | ---------------------------------------------------------- |
-| Short confirmation or error | Plain ephemeral message                  | buy, sell, equip, learn                                    |
-| One entity or roll result   | One embed with labeled fields            | mob, spell, liturgy, probe, healing                        |
-| Bounded live state          | One compact embed plus components        | combat lobby, active combat, editors                       |
-| Variable-length list        | Numbered multi-embed response            | inventory, weapons, maneuvers, mobs, abilities, combat log |
-| Long portable record        | Attachment with an embed/message summary | character export                                           |
+| Data shape                     | Presentation                             | Examples                                                   |
+| ------------------------------ | ---------------------------------------- | ---------------------------------------------------------- |
+| Short confirmation or error    | Plain ephemeral message                  | buy, sell, equip, learn                                    |
+| Interactive detail or result   | Components V2                            | spell, liturgy, maneuver, resource change                  |
+| Bounded interactive live state | Components V2                            | combat lobby, active combat, pending defense               |
+| Non-interactive entity detail  | One embed with labeled fields            | mob, rule result, healing                                  |
+| Variable-length list           | Numbered multi-embed response            | inventory, weapons, maneuvers, mobs, abilities, combat log |
+| Long portable record           | Attachment with an embed/message summary | character export                                           |
+
+Components V2 are preferred when interactive state benefits materially from
+stronger grouping and controls: active combat, pending defense, supernatural
+execution, and compact character resources. Plain text remains preferable for
+short confirmations and errors; legacy embeds remain the fallback for simple
+details, catalogs, and attachment summaries.
+
+A Components V2 message must set `IS_COMPONENTS_V2` on its initial reply. That
+flag is permanent, and the message cannot mix traditional `content` or `embeds`
+with V2 components. A deferred interaction must therefore set the flag during
+`deferReply`; later edits change only `components`.
+
+Pure builders live in `utils/componentViews.js`. New combat lobbies, active
+combat/turn state, pending defense, character sheets, AsP/KaP/SchP changes, and
+spell/liturgy/maneuver details and results use those builders in production.
+With development commands enabled, `/dev-ui-prototypes` renders six review
+views for desktop and mobile screenshot review. Existing combat messages retain
+their tested embed fallback because Discord does not allow an already-created
+legacy message to acquire the permanent V2 flag. Catalogs, inventory, weapons,
+party lists, and other paginated data remain embeds; short confirmations should
+not become heavy cards.
 
 Buttons and select menus remain the right companion for actions, but are not a replacement for the data itself. Interactive pagination was deliberately avoided: a command response can send up to ten prebuilt pages without maintaining collector state or expiring navigation controls. When a result would exceed ten pages, the final page explicitly says that more results exist and asks the user to refine the filter.
 
@@ -61,6 +83,7 @@ The status icon and wording carry the meaning; color is supporting information a
 - Maneuver detail converts prerequisites and rules into labeled values rather than JSON code blocks.
 - Catalogs, logs, mobs, learned abilities, supernatural activity, trades, and loot use safe list/section builders instead of fixed-row slices.
 - One-line mutation confirmations intentionally remain plain ephemeral messages. Turning them into cards would add visual weight without making the information clearer.
+- Free-form dice rolls use one compact inline breakdown (`notation → dice + modifier = total`) in message replies, `/roll`, and `/macro roll`; long pools show a bounded preview without hiding the total.
 
 ## Verification
 

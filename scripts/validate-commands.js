@@ -35,7 +35,10 @@ const productionNames = validateRegistration(false);
 const developmentNames = validateRegistration(true);
 const metadataByName = new Map(modules.map(({ metadata }) => [metadata.name, metadata]));
 const expectedFamilies = new Map([
-    ['character', ['create', 'select', 'sheet', 'edit', 'export', 'avatar', 'delete', 'restore-lep']],
+    [
+        'character',
+        ['create', 'select', 'sheet', 'edit', 'export', 'import', 'import-report', 'avatar', 'delete', 'restore-lep'],
+    ],
     ['combat', ['start', 'end', 'pause', 'resume', 'log']],
     ['inventory', ['add', 'list', 'edit', 'remove', 'use']],
     ['inv', ['add', 'list', 'edit', 'remove', 'use']],
@@ -45,6 +48,13 @@ const expectedFamilies = new Map([
     ['maneuver', ['list', 'show', 'use']],
     ['casting', ['status', 'complete', 'cancel']],
     ['ability', ['list']],
+    ['party', ['join', 'leave', 'view']],
+    ['initiative', ['start', 'show', 'add', 'remove', 'next', 'end']],
+    ['session-notes', ['add', 'list', 'show', 'edit', 'delete']],
+    ['companion', ['add', 'list', 'update', 'delete']],
+    ['crafting', ['start', 'list', 'progress', 'cancel']],
+    ['background', ['set', 'show']],
+    ['alchemy', ['recipes', 'brew', 'list', 'progress', 'cancel']],
 ]);
 
 for (const [name, expectedSubcommands] of expectedFamilies) {
@@ -55,6 +65,12 @@ for (const [name, expectedSubcommands] of expectedFamilies) {
         `Unexpected /${name} subcommand tree`
     );
 }
+
+assert.deepEqual(
+    metadataByName.get('campaign').options.map(option => option.name),
+    ['quest', 'encounter', 'world', 'map', 'stronghold', 'faction', 'npc', 'alchemy', 'webhook', 'backup'],
+    'Unexpected /campaign command group tree'
+);
 
 assert.deepEqual(
     metadataByName.get('inv').options,
@@ -71,8 +87,8 @@ for (const name of DEVELOPMENT_COMMANDS) {
     assert(!productionNames.has(name), `Development command is registered in production: ${name}`);
     assert(developmentNames.has(name), `Development command is missing in development mode: ${name}`);
 }
-assert.equal(productionNames.size, 36, 'Unexpected production command count');
-assert.equal(developmentNames.size, 38, 'Unexpected development command count');
+assert.equal(productionNames.size, 46, 'Unexpected production command count');
+assert.equal(developmentNames.size, 49, 'Unexpected development command count');
 process.stdout.write(
     `Validated ${modules.length} command modules: ${productionNames.size} production and ${developmentNames.size} development commands.\n`
 );

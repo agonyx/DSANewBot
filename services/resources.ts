@@ -15,6 +15,7 @@ import { rollRegeneration } from '../utils/regenUtils';
 import { calculateNaturalWoundHealing } from '../utils/woundUtils';
 import type { Ctx } from './_ctx';
 import { recoverRestConditionsForPlayer } from './combatEffects';
+import type { Transaction } from './advancement';
 
 export type ResourceKey = 'schicksalspunkte' | 'asp' | 'kap';
 
@@ -101,13 +102,27 @@ export interface ResourceMutation extends ResourceSnapshot {
     newValue: number;
 }
 
-export async function spendResource(
-    ctx: Ctx,
-    input: { type: ResourceKey; amount: number; targetDiscordId?: string }
+/**
+ * Spend a pool on one exact character inside the caller's transaction.
+ * Combat uses this entry point because a Discord account may own several
+ * characters and its currently selected sheet is not necessarily the active
+ * combatant.
+ */
+export async function spendPlayerResourceInTransaction(
+    tx: Transaction,
+    input: { playerId: number; type: ResourceKey; amount: number }
 ): Promise<ResourceMutation> {
     if (!Number.isInteger(input.amount) || input.amount <= 0) throw httpError(400, 'amount must be a positive integer');
     const meta = RESOURCE_TYPES[input.type];
-    const { player, stats: row } = await loadTargetSheet(input.targetDiscordId ?? ctx.discordId);
+    if (!meta) throw httpError(400, 'Unsupported resource type');
+    const [player] = await tx
+        .select({ id: players.id, name: players.name })
+        .from(players)
+        .where(eq(players.id, input.playerId))
+        .limit(1);
+    if (!player) throw httpError(404, 'Character not found');
+    const [row] = await tx.select().from(stats).where(eq(stats.player_id, player.id)).limit(1);
+    if (!row) throw httpError(404, 'Character has no stats set');
     const max = col(row, meta.maxCol);
     const oldValue = col(row, meta.currentCol);
     if (max === 0) throw httpError(400, `This character has no ${meta.label} pool.`);
@@ -115,11 +130,21 @@ export async function spendResource(
         throw httpError(400, `Not enough ${meta.label}! (Current: ${oldValue}/${max})`);
     }
     const newValue = oldValue - input.amount;
-    await db
+    await tx
         .update(stats)
         .set({ [meta.currentCol]: newValue })
         .where(eq(stats.id, row.id));
     return { characterName: player.name, type: input.type, oldValue, newValue, current: newValue, max };
+}
+
+export async function spendResource(
+    ctx: Ctx,
+    input: { type: ResourceKey; amount: number; targetDiscordId?: string }
+): Promise<ResourceMutation> {
+    const { player } = await loadTargetSheet(input.targetDiscordId ?? ctx.discordId);
+    return db.transaction(tx =>
+        spendPlayerResourceInTransaction(tx, { playerId: player.id, type: input.type, amount: input.amount })
+    );
 }
 
 export async function restoreResource(

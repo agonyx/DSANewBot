@@ -12,4 +12,6 @@ export interface Ctx {
     discordId: string;
     /** Reserved for DM-scoped actions (combat setup). Set where the caller is known to be the DM. */
     role?: 'DM';
+    /** Guilds where an OAuth-authenticated caller has Manage Guild or Administrator. */
+    dmGuildIds?: string[];
 }

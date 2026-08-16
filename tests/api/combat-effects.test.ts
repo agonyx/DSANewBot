@@ -85,9 +85,9 @@ describe('combat round and attack context rules', () => {
         assert.equal(getCalledShotPenalty('head'), -10);
         assert.equal(getCalledShotPenalty('torso'), -4);
         assert.equal(getCalledShotPenalty('left_leg'), -8);
-        assert.equal(getRangePenalty('close'), 0);
-        assert.equal(getRangePenalty('medium'), -2);
-        assert.equal(getRangePenalty('far'), -4);
+        assert.equal(getRangePenalty('close'), 2);
+        assert.equal(getRangePenalty('medium'), 0);
+        assert.equal(getRangePenalty('far'), -2);
         assert.equal(resolveHumanoidHitZone(2, 'medium'), 'head');
         assert.equal(resolveHumanoidHitZone(3, 'medium'), 'torso');
         assert.equal(resolveHumanoidHitZone(13, 'medium'), 'left_arm');

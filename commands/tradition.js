@@ -2,6 +2,7 @@ const { SlashCommandBuilder } = require('discord.js');
 const { getSupernaturalProfile, setSupernaturalProfile } = require('../services/supernatural');
 const { createLogger } = require('../utils/logger');
 const { createEmbed } = require('../utils/embedUtils');
+const { addVisibilityOption, deferWithVisibility } = require('../utils/interactionVisibility');
 
 const log = createLogger('tradition');
 
@@ -23,7 +24,9 @@ module.exports = {
     data: new SlashCommandBuilder()
         .setName('tradition')
         .setDescription('Configure magical and blessed traditions for your selected character')
-        .addSubcommand(sub => sub.setName('show').setDescription('Show the current supernatural profile'))
+        .addSubcommand(sub =>
+            addVisibilityOption(sub.setName('show').setDescription('Show the current supernatural profile'))
+        )
         .addSubcommand(sub =>
             sub
                 .setName('set')
@@ -39,9 +42,11 @@ module.exports = {
         ),
 
     async execute(interaction) {
-        await interaction.deferReply({ ephemeral: true });
+        const subcommand = interaction.options.getSubcommand();
+        if (subcommand === 'show') await deferWithVisibility(interaction);
+        else await interaction.deferReply({ ephemeral: true });
         try {
-            if (interaction.options.getSubcommand() === 'show') {
+            if (subcommand === 'show') {
                 return interaction.editReply({
                     embeds: [profileEmbed(await getSupernaturalProfile({ discordId: interaction.user.id }))],
                 });

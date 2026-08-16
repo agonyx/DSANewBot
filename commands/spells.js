@@ -2,51 +2,38 @@ const { SlashCommandBuilder } = require('discord.js');
 const { castAbility, getSpell, learnSpell, listLearnedSpells, listSpellCatalog } = require('../services/supernatural');
 const { getOrLoadSession, nextTurn } = require('../handlers/combatTurnHandler');
 const { createLogger } = require('../utils/logger');
-const { buildListEmbeds, createEmbed, truncateText } = require('../utils/embedUtils');
+const { buildListEmbeds } = require('../utils/embedUtils');
+const {
+    buildAbilityComponentPayload,
+    buildNoticeComponentPayload,
+    deferForComponents,
+    editDeferredComponents,
+} = require('../utils/componentViews');
+const { addVisibilityOption, interactionVisibility } = require('../utils/interactionVisibility');
 
 const log = createLogger('spells');
-
-function spellEmbed(spell) {
-    const probe = [spell.probe_attr1, spell.probe_attr2, spell.probe_attr3].filter(Boolean).join('/') || 'Automatic';
-    const embed = createEmbed('magic')
-        .setTitle(`✨ ${spell.name}`)
-        .setDescription(truncateText(spell.description, 3500, 'No description.'))
-        .addFields(
-            { name: 'Kind', value: spell.kind, inline: true },
-            { name: 'Probe', value: probe, inline: true },
-            {
-                name: 'AsP',
-                value: `${spell.resource_cost}${spell.permanent_cost ? ` (${spell.permanent_cost} permanent)` : ''}`,
-                inline: true,
-            },
-            { name: 'Casting time', value: spell.casting_time || 'Immediate', inline: true },
-            { name: 'Duration', value: spell.duration || 'Immediate', inline: true },
-            { name: 'Range', value: spell.range || 'Unspecified', inline: true },
-            { name: 'Traditions', value: spell.traditions.join(', ') || 'General' },
-            { name: 'Effect', value: spell.effect_type, inline: true },
-            { name: 'Learning AP', value: String(spell.ap_cost), inline: true }
-        );
-    if (spell.source_url) embed.setURL(spell.source_url);
-    return embed;
-}
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('spells')
         .setDescription('Browse, learn, and cast spells or rituals')
         .addSubcommand(sub =>
-            sub
-                .setName('list')
-                .setDescription('List the spell catalog')
-                .addStringOption(option => option.setName('search').setDescription('Name search'))
+            addVisibilityOption(
+                sub
+                    .setName('list')
+                    .setDescription('List the spell catalog')
+                    .addStringOption(option => option.setName('search').setDescription('Name search'))
+            )
         )
         .addSubcommand(sub =>
-            sub
-                .setName('show')
-                .setDescription('Show one spell or ritual')
-                .addStringOption(option =>
-                    option.setName('spell').setDescription('Spell').setRequired(true).setAutocomplete(true)
-                )
+            addVisibilityOption(
+                sub
+                    .setName('show')
+                    .setDescription('Show one spell or ritual')
+                    .addStringOption(option =>
+                        option.setName('spell').setDescription('Spell').setRequired(true).setAutocomplete(true)
+                    )
+            )
         )
         .addSubcommand(sub =>
             sub
@@ -57,22 +44,24 @@ module.exports = {
                 )
         )
         .addSubcommand(sub =>
-            sub
-                .setName('cast')
-                .setDescription('Cast a learned spell or begin a ritual')
-                .addStringOption(option =>
-                    option.setName('spell').setDescription('Learned spell').setRequired(true).setAutocomplete(true)
-                )
-                .addIntegerOption(option =>
-                    option.setName('modifier').setDescription('Probe modifier').setMinValue(-20).setMaxValue(20)
-                )
-                .addIntegerOption(option =>
-                    option.setName('resource_amount').setDescription('AsP for variable-cost spells').setMinValue(1)
-                )
-                .addUserOption(option => option.setName('target').setDescription('Player target (default: self)'))
-                .addStringOption(option =>
-                    option.setName('combatant').setDescription('Combatant target').setAutocomplete(true)
-                )
+            addVisibilityOption(
+                sub
+                    .setName('cast')
+                    .setDescription('Cast a learned spell or begin a ritual')
+                    .addStringOption(option =>
+                        option.setName('spell').setDescription('Learned spell').setRequired(true).setAutocomplete(true)
+                    )
+                    .addIntegerOption(option =>
+                        option.setName('modifier').setDescription('Probe modifier').setMinValue(-20).setMaxValue(20)
+                    )
+                    .addIntegerOption(option =>
+                        option.setName('resource_amount').setDescription('AsP for variable-cost spells').setMinValue(1)
+                    )
+                    .addUserOption(option => option.setName('target').setDescription('Player target (default: self)'))
+                    .addStringOption(option =>
+                        option.setName('combatant').setDescription('Combatant target').setAutocomplete(true)
+                    )
+            )
         ),
 
     async autocomplete(interaction) {
@@ -107,9 +96,13 @@ module.exports = {
     },
 
     async execute(interaction) {
-        await interaction.deferReply({ ephemeral: true });
         const ctx = { discordId: interaction.user.id };
         const subcommand = interaction.options.getSubcommand();
+        const publicEligible = ['list', 'show', 'cast'].includes(subcommand);
+        const visibility = publicEligible ? interactionVisibility(interaction) : { ephemeral: true };
+        const usesComponents = ['show', 'cast'].includes(subcommand);
+        if (usesComponents) await deferForComponents(interaction, visibility);
+        else await interaction.deferReply({ ephemeral: visibility.ephemeral });
         try {
             if (subcommand === 'list') {
                 const rows = await listSpellCatalog(ctx, {
@@ -128,7 +121,14 @@ module.exports = {
             }
             const spellId = interaction.options.getString('spell');
             if (subcommand === 'show')
-                return interaction.editReply({ embeds: [spellEmbed(await getSpell(ctx, spellId))] });
+                return editDeferredComponents(
+                    interaction,
+                    buildAbilityComponentPayload(
+                        { ...(await getSpell(ctx, spellId)), abilityType: 'SPELL' },
+                        null,
+                        visibility
+                    )
+                );
             if (subcommand === 'learn') {
                 const result = await learnSpell(ctx, { spellId });
                 return interaction.editReply(
@@ -137,7 +137,11 @@ module.exports = {
             }
             const target = interaction.options.getUser('target');
             const combatantId = interaction.options.getString('combatant');
-            if (target && combatantId) return interaction.editReply('❌ Choose either a player or combatant target.');
+            if (target && combatantId)
+                return editDeferredComponents(
+                    interaction,
+                    buildNoticeComponentPayload('❌ Choose either a player or combatant target.', { theme: 'error' })
+                );
             const result = await castAbility(ctx, {
                 abilityType: 'SPELL',
                 abilityId: spellId,
@@ -155,12 +159,28 @@ module.exports = {
                 : result.pending
                   ? `began and completes <t:${Math.floor(new Date(result.casting.completes_at).getTime() / 1000)}:R>`
                   : 'succeeded';
-            return interaction.editReply(
-                `${result.success ? '✅' : '❌'} **${result.ability.name}** ${status}. ` +
-                    `QS ${result.qualityLevel}; ${result.paidCost} AsP spent; ${result.resourceAfter} remain.`
+            return editDeferredComponents(
+                interaction,
+                buildAbilityComponentPayload(
+                    { ...result.ability, abilityType: 'SPELL' },
+                    {
+                        success: result.success,
+                        qualityLevel: result.qualityLevel,
+                        paidCost: result.paidCost,
+                        resourceAfter: result.resourceAfter,
+                        statusText: `The casting ${status}.`,
+                    },
+                    visibility
+                )
             );
         } catch (error) {
             log.error({ error, subcommand }, 'Spell command failed');
+            if (usesComponents) {
+                return editDeferredComponents(
+                    interaction,
+                    buildNoticeComponentPayload(`❌ ${error.data?.error || error.message}`, { theme: 'error' })
+                );
+            }
             return interaction.editReply(`❌ ${error.data?.error || error.message}`);
         }
     },

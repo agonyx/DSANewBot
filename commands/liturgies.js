@@ -8,52 +8,38 @@ const {
 } = require('../services/supernatural');
 const { getOrLoadSession, nextTurn } = require('../handlers/combatTurnHandler');
 const { createLogger } = require('../utils/logger');
-const { buildListEmbeds, createEmbed, truncateText } = require('../utils/embedUtils');
+const { buildListEmbeds } = require('../utils/embedUtils');
+const {
+    buildAbilityComponentPayload,
+    buildNoticeComponentPayload,
+    deferForComponents,
+    editDeferredComponents,
+} = require('../utils/componentViews');
+const { addVisibilityOption, interactionVisibility } = require('../utils/interactionVisibility');
 
 const log = createLogger('liturgies');
-
-function liturgyEmbed(liturgy) {
-    const probe =
-        [liturgy.probe_attr1, liturgy.probe_attr2, liturgy.probe_attr3].filter(Boolean).join('/') || 'Automatic';
-    const embed = createEmbed('karma')
-        .setTitle(`🙏 ${liturgy.name}`)
-        .setDescription(truncateText(liturgy.description, 3500, 'No description.'))
-        .addFields(
-            { name: 'Kind', value: liturgy.kind, inline: true },
-            { name: 'Probe', value: probe, inline: true },
-            {
-                name: 'KaP',
-                value: `${liturgy.resource_cost}${liturgy.permanent_cost ? ` (${liturgy.permanent_cost} permanent)` : ''}`,
-                inline: true,
-            },
-            { name: 'Casting time', value: liturgy.casting_time || 'Immediate', inline: true },
-            { name: 'Duration', value: liturgy.duration || 'Immediate', inline: true },
-            { name: 'Range', value: liturgy.range || 'Unspecified', inline: true },
-            { name: 'Traditions', value: liturgy.traditions.join(', ') || 'General' },
-            { name: 'Aspects', value: liturgy.aspects.join(', ') || 'General', inline: true },
-            { name: 'Learning AP', value: String(liturgy.ap_cost), inline: true }
-        );
-    if (liturgy.source_url) embed.setURL(liturgy.source_url);
-    return embed;
-}
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('liturgies')
         .setDescription('Browse, learn, and perform liturgies or ceremonies')
         .addSubcommand(sub =>
-            sub
-                .setName('list')
-                .setDescription('List the liturgy catalog')
-                .addStringOption(option => option.setName('search').setDescription('Name search'))
+            addVisibilityOption(
+                sub
+                    .setName('list')
+                    .setDescription('List the liturgy catalog')
+                    .addStringOption(option => option.setName('search').setDescription('Name search'))
+            )
         )
         .addSubcommand(sub =>
-            sub
-                .setName('show')
-                .setDescription('Show one liturgy or ceremony')
-                .addStringOption(option =>
-                    option.setName('liturgy').setDescription('Liturgy').setRequired(true).setAutocomplete(true)
-                )
+            addVisibilityOption(
+                sub
+                    .setName('show')
+                    .setDescription('Show one liturgy or ceremony')
+                    .addStringOption(option =>
+                        option.setName('liturgy').setDescription('Liturgy').setRequired(true).setAutocomplete(true)
+                    )
+            )
         )
         .addSubcommand(sub =>
             sub
@@ -64,22 +50,31 @@ module.exports = {
                 )
         )
         .addSubcommand(sub =>
-            sub
-                .setName('perform')
-                .setDescription('Perform a learned liturgy or begin a ceremony')
-                .addStringOption(option =>
-                    option.setName('liturgy').setDescription('Learned liturgy').setRequired(true).setAutocomplete(true)
-                )
-                .addIntegerOption(option =>
-                    option.setName('modifier').setDescription('Probe modifier').setMinValue(-20).setMaxValue(20)
-                )
-                .addIntegerOption(option =>
-                    option.setName('resource_amount').setDescription('KaP for variable-cost liturgies').setMinValue(1)
-                )
-                .addUserOption(option => option.setName('target').setDescription('Player target (default: self)'))
-                .addStringOption(option =>
-                    option.setName('combatant').setDescription('Combatant target').setAutocomplete(true)
-                )
+            addVisibilityOption(
+                sub
+                    .setName('perform')
+                    .setDescription('Perform a learned liturgy or begin a ceremony')
+                    .addStringOption(option =>
+                        option
+                            .setName('liturgy')
+                            .setDescription('Learned liturgy')
+                            .setRequired(true)
+                            .setAutocomplete(true)
+                    )
+                    .addIntegerOption(option =>
+                        option.setName('modifier').setDescription('Probe modifier').setMinValue(-20).setMaxValue(20)
+                    )
+                    .addIntegerOption(option =>
+                        option
+                            .setName('resource_amount')
+                            .setDescription('KaP for variable-cost liturgies')
+                            .setMinValue(1)
+                    )
+                    .addUserOption(option => option.setName('target').setDescription('Player target (default: self)'))
+                    .addStringOption(option =>
+                        option.setName('combatant').setDescription('Combatant target').setAutocomplete(true)
+                    )
+            )
         ),
 
     async autocomplete(interaction) {
@@ -114,9 +109,13 @@ module.exports = {
     },
 
     async execute(interaction) {
-        await interaction.deferReply({ ephemeral: true });
         const ctx = { discordId: interaction.user.id };
         const subcommand = interaction.options.getSubcommand();
+        const publicEligible = ['list', 'show', 'perform'].includes(subcommand);
+        const visibility = publicEligible ? interactionVisibility(interaction) : { ephemeral: true };
+        const usesComponents = ['show', 'perform'].includes(subcommand);
+        if (usesComponents) await deferForComponents(interaction, visibility);
+        else await interaction.deferReply({ ephemeral: visibility.ephemeral });
         try {
             if (subcommand === 'list') {
                 const rows = await listLiturgyCatalog(ctx, {
@@ -135,7 +134,14 @@ module.exports = {
             }
             const liturgyId = interaction.options.getString('liturgy');
             if (subcommand === 'show') {
-                return interaction.editReply({ embeds: [liturgyEmbed(await getLiturgy(ctx, liturgyId))] });
+                return editDeferredComponents(
+                    interaction,
+                    buildAbilityComponentPayload(
+                        { ...(await getLiturgy(ctx, liturgyId)), abilityType: 'LITURGY' },
+                        null,
+                        visibility
+                    )
+                );
             }
             if (subcommand === 'learn') {
                 const result = await learnLiturgy(ctx, { liturgyId });
@@ -145,7 +151,11 @@ module.exports = {
             }
             const target = interaction.options.getUser('target');
             const combatantId = interaction.options.getString('combatant');
-            if (target && combatantId) return interaction.editReply('❌ Choose either a player or combatant target.');
+            if (target && combatantId)
+                return editDeferredComponents(
+                    interaction,
+                    buildNoticeComponentPayload('❌ Choose either a player or combatant target.', { theme: 'error' })
+                );
             const result = await castAbility(ctx, {
                 abilityType: 'LITURGY',
                 abilityId: liturgyId,
@@ -163,12 +173,28 @@ module.exports = {
                 : result.pending
                   ? `began and completes <t:${Math.floor(new Date(result.casting.completes_at).getTime() / 1000)}:R>`
                   : 'succeeded';
-            return interaction.editReply(
-                `${result.success ? '✅' : '❌'} **${result.ability.name}** ${status}. ` +
-                    `QS ${result.qualityLevel}; ${result.paidCost} KaP spent; ${result.resourceAfter} remain.`
+            return editDeferredComponents(
+                interaction,
+                buildAbilityComponentPayload(
+                    { ...result.ability, abilityType: 'LITURGY' },
+                    {
+                        success: result.success,
+                        qualityLevel: result.qualityLevel,
+                        paidCost: result.paidCost,
+                        resourceAfter: result.resourceAfter,
+                        statusText: `The rite ${status}.`,
+                    },
+                    visibility
+                )
             );
         } catch (error) {
             log.error({ error, subcommand }, 'Liturgy command failed');
+            if (usesComponents) {
+                return editDeferredComponents(
+                    interaction,
+                    buildNoticeComponentPayload(`❌ ${error.data?.error || error.message}`, { theme: 'error' })
+                );
+            }
             return interaction.editReply(`❌ ${error.data?.error || error.message}`);
         }
     },

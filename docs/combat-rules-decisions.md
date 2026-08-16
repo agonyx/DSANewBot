@@ -29,12 +29,24 @@ remain in `combat-maneuvers-reference.md`, `additional-combat-maneuvers.md`,
 
 ## Defense and maneuvers
 
-- Every defense attempt increments a persisted counter. Later defenses in the
+- A successful normal attack pauses before damage and offers the defender each
+  legal choice. Melee attacks may be parried or dodged; ranged attacks may be
+  dodged or parried with a shield. Shooting defenses receive -4 and thrown
+  weapon defenses -2. Critical successes and opportunity attacks are
+  unopposed. Declining a defense never increments the defense counter.
+- Against a large attacker, only shield parry or dodge is offered; against a
+  huge attacker, only dodge is offered. Attacks against tiny targets receive
+  the core -4 AT size modifier.
+- Every attempted parry or dodge increments a persisted counter. Later defenses in the
   same round receive -3 each; learned Meisterparade changes the step to -2.
   Counters reset together at the round boundary.
-- Verteidigungshaltung spends the active action, grants +4 PA, blocks further
-  actions, and expires at the user's next turn start.
-- Entwaffnen drops an eligible equipped player weapon. Zu Fall bringen observes
+- Verteidigungshaltung must be the combatant's first declaration on its active
+  turn. It is no longer offered after an action or free action, spends the
+  action, grants +4 PA, blocks further actions, and expires at the combatant's
+  next turn start. This is the persisted turn-boundary approximation used by
+  the bot for the core rule's "beginning of the combat round" timing.
+- Entwaffnen uses AT -4 (-6 against a two-handed weapon), deals 1W3 TP, excludes
+  shields, and persists the dropped weapon until it is retrieved. Zu Fall bringen observes
   size restrictions and applies Liegend. Haltegriff applies Fixiert and
   Eingeengt while preventing the grappler from defending; the held character
   can spend an action on the KK escape check. A prone character can spend an
@@ -62,8 +74,8 @@ remain in `combat-maneuvers-reference.md`, `additional-combat-maneuvers.md`,
 ## Ranged attacks and hit zones
 
 - Ranged weapons persist close/medium/far ranges, reload actions, hand use, and
-  combat technique. Defaults are 10/50/100 and one reload action. Range penalties
-  are 0/-2/-4, cover is an additional validated penalty from 0 through 4, and an
+  combat technique. Defaults are 10/50/100 and one reload action. Close range is
+  +2 AT/+1 TP, medium is unchanged, and far range is -2 AT/-1 TP. Cover is an additional validated penalty from 0 through 4, and an
   attack sets the weapon's reload counter after it fires.
 - Maneuver prerequisites validate attributes, free hands, combat value, learned
   prerequisite abilities, weapon action type, and combat technique. Mob attacks
@@ -80,7 +92,31 @@ remain in `combat-maneuvers-reference.md`, `additional-combat-maneuvers.md`,
 ## Persistence and recovery
 
 Combat sessions, defense/reload state, hit location, all three effect classes,
-and the combat log survive bot restart. The latest active or ended log for a
+pending attacks, action-use records, dropped equipment, and the combat log
+survive bot restart. The latest active or ended log for a
 channel is available through `/combat log` and the combat API. The database is
 the source of truth; the Discord in-memory mirror is refreshed after turn
 transitions rather than owning transient mechanics.
+
+## Rules parity matrix
+
+| Area                     | Implemented contract                                                           | Authority               |
+| ------------------------ | ------------------------------------------------------------------------------ | ----------------------- |
+| Melee defense            | Defender chooses weapon/shield parry, dodge, or decline                        | Core                    |
+| Ranged defense           | Dodge or shield parry; -4 shooting, -2 thrown                                  | Core                    |
+| Creature size            | Large: shield/dodge; huge: dodge only; tiny targets: -4 AT                     | Core                    |
+| Critical attack          | No defense; damage is doubled                                                  | Core                    |
+| Multiple defenses        | One shared counter; -3 per prior attempt, -2 with Meisterparade                | Core / optional ability |
+| Incapacitation           | Level-IV/direct action or defense prohibition removes choices                  | Core                    |
+| Longer actions           | A chosen defense explicitly interrupts the persisted longer action             | Core                    |
+| Maneuver compatibility   | Weapon type, technique, prerequisites, and base/special category are validated | Core                    |
+| NPC defenses             | No artificial per-round cap; DM chooses from the same legal options            | DSANewBot house rule    |
+| Opportunity attack       | AT -4 and no defense                                                           | Core                    |
+| Free-action descriptions | One bounded free-action record per turn                                        | DSANewBot house rule    |
+
+The NPC defense limit remains intentionally uncapped because the current mob
+catalog has no creature-specific defense allowance. `NPC_DEFENSE_LIMIT` remains
+a stable rule-engine reason for a future per-creature limit; treating all NPCs
+as having one defense would be an undocumented rules invention.
+
+Primary size reference: [DSA Regelwiki — Größenkategorie](https://dsa.ulisses-regelwiki.de/Spezielle_Nahkampfregeln/groessenkategorie.html).

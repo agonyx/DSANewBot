@@ -21,6 +21,8 @@ const LEGACY_COMMANDS = new Set([
     'evade',
     'export-character',
     'heal',
+    'import-character',
+    'import-report',
     'list-maneuvers',
     'list-mobs',
     'park-combat',
@@ -39,7 +41,7 @@ const LEGACY_COMMANDS = new Set([
     'use-skill',
 ]);
 
-const DEVELOPMENT_COMMANDS = new Set(['dev-test-character', 'dev-test-mobs']);
+const DEVELOPMENT_COMMANDS = new Set(['dev-test-character', 'dev-test-mobs', 'dev-ui-prototypes']);
 
 function shouldRegisterCommand(commandName, { includeDevelopment = process.env.DEV_MODE === 'true' } = {}) {
     if (LEGACY_COMMANDS.has(commandName)) return false;

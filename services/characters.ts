@@ -35,6 +35,8 @@ const ALLOWED_STATS = new Set([
     'ausweichen',
     'attacke_basis',
     'parade_basis',
+    'seelenkraft',
+    'zaehigkeit',
 ]);
 
 /** Create a new character for the caller (keys stats + player_talents off ctx.discordId). */

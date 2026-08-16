@@ -19,6 +19,7 @@ module.exports = {
                     { name: 'Magic & Karma', value: 'supernatural' },
                     { name: 'Equipment & Economy', value: 'economy' },
                     { name: 'Mobs (DM)', value: 'mobs' },
+                    { name: 'Campaign (DM)', value: 'campaign' },
                     { name: 'Regelwiki', value: 'regelwiki' },
                     { name: 'Utility', value: 'utility' }
                 )
@@ -36,16 +37,18 @@ module.exports = {
 
         const helpEmbed = createEmbed('neutral')
             .setTitle('📚 DSA Bot Help')
-            .setDescription('A Discord bot for **DSA (Das Schwarze Auge) 5th Edition** combat management.')
+            .setDescription(
+                'A Discord bot for **DSA (Das Schwarze Auge) 5th Edition** combat management. Safe display commands are private by default; set `visible:true` to show their result to everyone.'
+            )
             .addFields(
                 {
                     name: '👤 Character',
-                    value: '`/character` `/advance` `/schicksalspunkte` `/asp` `/kap` `/regeneration` `/treat-wounds`',
+                    value: '`/character` `/background` `/companion` `/reputation` `/crafting` `/alchemy` `/advance` `/schicksalspunkte` `/asp` `/kap`',
                     inline: false,
                 },
                 {
                     name: '⚔️ Combat',
-                    value: '`/combat` `/attack-check` `/evade-check` `/maneuver use` `/combat-action` `/condition` `/status` `/effect`',
+                    value: '`/combat` `/attack-check` `/attack-resolve` `/evade-check` `/maneuver use` `/combat-action` `/condition` `/status` `/effect`',
                     inline: false,
                 },
                 {
@@ -79,13 +82,18 @@ module.exports = {
                     inline: false,
                 },
                 {
+                    name: '🗺️ Campaign (DM Only)',
+                    value: '`/party view` `/initiative` `/session-notes` `/campaign`',
+                    inline: false,
+                },
+                {
                     name: '📖 Regelwiki',
                     value: '`/regel`',
                     inline: false,
                 },
                 {
                     name: '🎲 Utility',
-                    value: '`/roll` `/macro` `/help`',
+                    value: '`/roll` `/macro` `[[inline dice]]` `/help`',
                     inline: false,
                 }
             )
@@ -106,6 +114,14 @@ function getCategoryHelp(category) {
                 { name: '/character sheet', value: "View your selected character's complete sheet" },
                 { name: '/character edit', value: 'Interactively edit the selected character sheet' },
                 { name: '/character export', value: 'Download the selected character sheet as UTF-8 text' },
+                {
+                    name: '/character import',
+                    value: 'Preview and import Foundry DSA5, Optolith, DSANewBot JSON, or supported fillable DSA PDFs',
+                },
+                {
+                    name: '/character import-report',
+                    value: 'Inspect fields or catalog entries preserved as unresolved during import',
+                },
                 { name: '/character avatar', value: 'Upload a custom character avatar' },
                 { name: '/character delete', value: 'Permanently delete a character' },
                 {
@@ -120,7 +136,12 @@ function getCategoryHelp(category) {
                 {
                     name: '/advance',
                     value: 'Show/award AP and improve attributes, talents, supernatural FW, or abilities',
-                }
+                },
+                { name: '/background', value: 'Set or show culture and profession' },
+                { name: '/companion', value: 'Manage familiars, companions, mounts, and riding animals' },
+                { name: '/reputation', value: 'Show faction standings' },
+                { name: '/crafting', value: 'Track crafting projects and progress' },
+                { name: '/alchemy', value: 'Browse recipes and track potion brews' }
             ),
 
         combat: createEmbed('combat')
@@ -132,12 +153,16 @@ function getCategoryHelp(category) {
                 { name: '/combat pause', value: 'Pause combat to resume later' },
                 { name: '/combat resume', value: 'Resume a paused combat session' },
                 { name: '/combat log', value: 'Show the latest active or ended log for this channel' },
-                { name: '/attack-check', value: 'Make a standalone attack roll outside tracked combat' },
+                { name: '/attack-check', value: 'Make a target-free, non-mutating attack roll' },
+                {
+                    name: '/attack-resolve',
+                    value: 'Explicitly resolve a mutating tracked-combat attack with defender choice',
+                },
                 { name: '/evade-check', value: 'Make a standalone evasion roll outside tracked combat' },
                 { name: '/maneuver use', value: 'Use a combat maneuver' },
                 {
                     name: '/combat-action',
-                    value: 'Use full defense, reload, escape, two-weapon, or opportunity actions',
+                    value: 'Fallback slash access to special actions; the combat panel Choose action menu exposes the complete flow',
                 },
                 { name: '/condition', value: 'Add, remove, or list leveled combat conditions' },
                 { name: '/status', value: 'Add, remove, or list binary combat statuses with optional DOT/penalties' },
@@ -235,13 +260,36 @@ function getCategoryHelp(category) {
                 }
             ),
 
+        campaign: createEmbed('info')
+            .setTitle('🗺️ Campaign Commands (DM Only)')
+            .setDescription('Guild-scoped party, world, quest, location, and integration records')
+            .addFields(
+                { name: '/party view', value: 'Show the enrolled party overview (Manage Server)' },
+                { name: '/initiative', value: 'Track a persistent non-combat turn order per channel' },
+                { name: '/session-notes add|list|show|edit|delete', value: 'Maintain persistent guild session notes' },
+                { name: '/campaign quest', value: 'Manage quests and objectives' },
+                { name: '/campaign npc|encounter', value: 'Generate quick NPCs and roll weighted encounters' },
+                { name: '/campaign world|map|stronghold', value: 'Track time, weather, maps, and bases' },
+                { name: '/campaign faction|alchemy', value: 'Manage factions, standing, and recipe catalogs' },
+                { name: '/campaign webhook', value: 'Manage signed API/webhook integrations' },
+                { name: '/campaign backup', value: 'Create or restore bounded campaign JSON backups' }
+            ),
+
         utility: createEmbed('info')
             .setTitle('🎲 Utility Commands')
             .setDescription('General utility commands')
             .addFields(
                 { name: '/roll <dice>', value: 'Roll dice using DSA notation (e.g., `/roll 1w20`, `/roll 3w6+2`)' },
                 { name: '/roll <dice> visible:true', value: 'Make the roll visible to everyone' },
+                {
+                    name: '/roll <dice> animated:true',
+                    value: 'Publish exact roll data to a configured Foundry Dice So Nice webhook',
+                },
                 { name: '/macro save|roll|list|delete', value: 'Manage reusable, per-character dice expressions' },
+                {
+                    name: '[[2w6+3]]',
+                    value: 'Roll dice inline inside an ordinary Discord message (up to 10 per message)',
+                },
                 { name: '/help', value: 'Show this help message' },
                 { name: '/help <category>', value: 'Get detailed help for a specific category' }
             ),

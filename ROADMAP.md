@@ -2,6 +2,12 @@
 
 Feature audit and development roadmap for becoming a complete DSA 5th Edition tabletop companion.
 
+Implementation checkpoint (2026-08-16): every software item in this roadmap is
+implemented in the current worktree and passes the isolated full test gate. The
+remaining unchecked acceptance criterion in the companion UX backlog is the
+user's desktop/mobile screenshot approval for the Components V2 direction.
+Migrations and code from this checkpoint have not been applied to the live bot.
+
 ---
 
 ## ✅ Implemented Features
@@ -25,6 +31,7 @@ Feature audit and development roadmap for becoming a complete DSA 5th Edition ta
 | Initiative         | `stats.initiative`                 | Base initiative value                      |
 | Armor Soak (RS)    | `stats.ruestungsschutz`            | Natural plus equipped armor, synchronized  |
 | Dodge (Ausweichen) | `stats.ausweichen`                 | Evasion value                              |
+| SK / ZK            | `stats.seelenkraft`, `zaehigkeit`  | Soulpower and toughness                    |
 | Interactive Editor | `/character edit`                  | Modal-based stat editing with live updates |
 
 ### Talent Probes (3d20 System)
@@ -47,13 +54,14 @@ Feature audit and development roadmap for becoming a complete DSA 5th Edition ta
 | Attack Resolution   | `combatUtils.js`                   | d20 vs AT with crit/botch                                              |
 | Critical Hits       | Natural 1 → confirm roll           | Double damage on confirmed crit                                        |
 | Botches             | Natural 20 → confirm roll          | Self-damage on botch                                                   |
-| Defense/Parry       | `combatUtils.js`                   | d20 vs PA after hit                                                    |
+| Defender Choice     | `combat_actions`, combat service   | Persisted parry/dodge/decline before damage                            |
 | Damage Calculation  | `parseAndRollDamage()`             | Parses "1w6+4" notation                                                |
 | Armor Soak          | `applySoak()`                      | RS subtraction, min 1 damage rule                                      |
 | Combat Maneuvers    | `action_modifications` table       | AT/PA/damage modifiers                                                 |
 | DM NPC Control      | `npcHandler.js`                    | DM controls hostile NPCs                                               |
 | Combat Log          | `combat_sessions.combat_log`       | Recent events display                                                  |
 | Session Persistence | `recoverActiveCombats()`           | Bot restart recovery                                                   |
+| Turn Action Menu    | `combatTurnHandler.js`             | State-aware attacks, actions, casting, resources, and free actions     |
 | Pause/Resume        | `/combat pause`, `/combat resume`  | Park and resume active sessions                                        |
 | Wounds & Threshold  | `woundUtils.ts`, combat resolution | Aggregate wounds tracked separately from LP; threshold derived from KO |
 
@@ -107,6 +115,8 @@ Feature audit and development roadmap for becoming a complete DSA 5th Edition ta
 | Dice Macros  | `/macro`                 | Save, list, roll, and delete expressions |
 | Healing      | `/character restore-lep` | Manual LeP restoration (self or DM)      |
 | Evasion      | `/evade-check`           | Standalone d20 vs Ausweichen             |
+| Attack Check | `/attack-check`          | Target-free, non-mutating weapon check   |
+| Attack Apply | `/attack-resolve`        | Confirmed tracked attack with defense UX |
 | Help         | `/help`                  | Command reference                        |
 
 ---
@@ -213,57 +223,63 @@ Priorities 1–3 and Development Sprints 1–5 are implemented and verified. Cle
 
 - [x] Character sheet export (PDF/text)
 - [x] Dice macros (save common rolls)
-- [ ] Initiative tracker (non-combat)
-- [ ] Party view (DM overview of all players)
+- [x] Initiative tracker (non-combat; persistent `/initiative` tracker per server channel)
+- [x] Party view (guild-scoped `/party` enrollment and DM overview)
 - [x] Quick reference / rule lookups (`/regel`)
-- [ ] Inline roll results formatting
+- [x] Inline roll results formatting (`[[2w6+3]]` message rolls plus shared compact output)
 
 ### Campaign Tools
 
-- [ ] Session notes (DM)
-- [ ] Quest log / objectives
-- [ ] NPC generator (quick random NPCs)
-- [ ] Random encounter tables
-- [ ] Weather / time tracking
-- [ ] Map linking
+- [x] Session notes (guild-scoped DM CRUD via `/session-notes`)
+- [x] Quest log / objectives (guild-scoped DM CRUD, status, and objective completion)
+- [x] NPC generator (quick random NPC identity, motive, personality, and combat stats)
+- [x] Random encounter tables (persistent weighted tables and draws)
+- [x] Weather / time tracking (persistent world clock, advancement, and generated/manual weather)
+- [x] Map linking (named, validated HTTPS campaign maps)
 
 ### Advanced Mechanics
 
-- [ ] Familiars / companions
-- [ ] Mounts / riding animals
-- [ ] Strongholds / bases
-- [ ] Crafting system
-- [ ] Reputation / faction standing
-- [ ] Culture / profession backgrounds
-- [ ] Alchemy / potion brewing
+- [x] Familiars / companions (selected-character CRUD via `/companion`)
+- [x] Mounts / riding animals (typed mount records via `/companion`)
+- [x] Strongholds / bases (guild-scoped location, level, status, and notes)
+- [x] Crafting system (selected-character projects with bounded progress and completion)
+- [x] Reputation / faction standing (DM-managed factions and party-character standing)
+- [x] Culture / profession backgrounds (selected-character background profile)
+- [x] Alchemy / potion brewing (DM recipe catalog and character brew progress)
 
 ### Integration
 
-- [ ] Dice So Nice integration (animated dice)
-- [ ] Character import from official tools
-- [ ] API / webhooks
-- [ ] Backup / restore functionality
+- [x] Dice So Nice integration (exact custom-roll payloads over signed Foundry webhooks)
+- [x] Character import from official tools (validated Foundry DSA5 and Optolith JSON core data)
+- [x] Fillable PDF import profile (`DSA5-Dokument V1.93`, preview/confirm, unresolved report)
+- [x] API / webhooks (OAuth guild authorization, shared service routes, signed outbound events)
+- [x] Backup / restore functionality (bounded campaign JSON with merge and confirmed replace modes)
 
 ---
 
 ## Database Tables Status
 
-| Table/group                                           | Status    | Usage                                               |
-| ----------------------------------------------------- | --------- | --------------------------------------------------- |
-| `players`, `stats`                                    | ✅ Active | Character records, attributes, resources, wounds/AP |
-| `dice_macros`                                         | ✅ Active | Per-character reusable dice expressions             |
-| `talents`, `player_talents`                           | ✅ Active | Talent catalog and FW                               |
-| `spells`, `player_spells`, `supernatural_*`           | ✅ Active | Magic profiles, learning, castings, and effects     |
-| `liturgies`, `player_liturgies`                       | ✅ Active | Karma catalog and learned abilities                 |
-| `ap_transactions`                                     | ✅ Active | Immutable AP audit ledger                           |
-| `action_modifications`, `player_action_modifications` | ✅ Active | Maneuvers, prerequisites, AP cost, and ownership    |
-| `special_abilities`, `player_special_abilities`       | ✅ Active | Magical/karmic source catalog and learned abilities |
-| `weapons`, `items`, `equipment_catalog`               | ✅ Active | Weapons, armor, clothing, gear, slots, weight/value |
-| `wallets`, `wallet_transactions`                      | ✅ Active | Currency balance and immutable ledger               |
-| `trades`, `trade_items`, `loot_pools`, `loot_entries` | ✅ Active | Atomic trading and post-combat rewards              |
-| `mobs`, `combat_sessions`, `combatants`               | ✅ Active | Templates and persistent combat state               |
-| `combatant_conditions`, `combatant_statuses`          | ✅ Active | Leveled and binary lifecycle effects                |
-| `combatant_effects`, `wound_treatments`               | ✅ Active | Buff/debuff state and treatment audit               |
+| Table/group                                            | Status             | Usage                                                |
+| ------------------------------------------------------ | ------------------ | ---------------------------------------------------- |
+| `players`, `stats`                                     | ✅ Active          | Character records, attributes, resources, wounds/AP  |
+| `dice_macros`                                          | ✅ Active          | Per-character reusable dice expressions              |
+| `talents`, `player_talents`                            | ✅ Active          | Talent catalog and FW                                |
+| `spells`, `player_spells`, `supernatural_*`            | ✅ Active          | Magic profiles, learning, castings, and effects      |
+| `liturgies`, `player_liturgies`                        | ✅ Active          | Karma catalog and learned abilities                  |
+| `ap_transactions`                                      | ✅ Active          | Immutable AP audit ledger                            |
+| `action_modifications`, `player_action_modifications`  | ✅ Active          | Maneuvers, prerequisites, AP cost, and ownership     |
+| `special_abilities`, `player_special_abilities`        | ✅ Active          | Magical/karmic source catalog and learned abilities  |
+| `weapons`, `items`, `equipment_catalog`                | ✅ Active          | Weapons, armor, clothing, gear, slots, weight/value  |
+| `wallets`, `wallet_transactions`                       | ✅ Active          | Currency balance and immutable ledger                |
+| `trades`, `trade_items`, `loot_pools`, `loot_entries`  | ✅ Active          | Atomic trading and post-combat rewards               |
+| `mobs`, `combat_sessions`, `combatants`                | ✅ Active          | Templates and persistent combat state                |
+| `combat_actions`                                       | 🟡 Migration ready | Idempotent pending defenses and action journal       |
+| `combatant_conditions`, `combatant_statuses`           | ✅ Active          | Leveled and binary lifecycle effects                 |
+| `combatant_effects`, `wound_treatments`                | ✅ Active          | Buff/debuff state and treatment audit                |
+| `party_memberships`, `initiative_trackers`             | ✅ Active          | Guild party enrollment and scene initiative          |
+| `session_notes`, `campaign_records`, `campaign_worlds` | ✅ Active          | Notes, quests, encounters, maps, bases, world state  |
+| `character_records`                                    | ✅ Active          | Companions, backgrounds, standing, crafting, alchemy |
+| `webhook_subscriptions`                                | ✅ Active          | Signed outbound integrations and Dice So Nice events |
 
 ---
 

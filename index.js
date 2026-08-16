@@ -218,6 +218,18 @@ client.on(Events.InteractionCreate, async interaction => {
         // Combined check for components/modals
         const customId = interaction.customId;
 
+        if (interaction.isButton() && customId.startsWith('charimp_')) {
+            try {
+                await require('./commands/import-character').handleImportButton(interaction);
+            } catch (error) {
+                log.error({ error }, 'Character import confirmation failed');
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({ content: 'Character import confirmation failed.', ephemeral: true });
+                }
+            }
+            return;
+        }
+
         // --- Check for Combat Prefixes ---
         if (
             customId.startsWith('combat_') ||
@@ -227,6 +239,14 @@ client.on(Events.InteractionCreate, async interaction => {
             customId.startsWith('cancel_combat_') ||
             customId.startsWith('caa_') ||
             customId.startsWith('cad_') ||
+            customId.startsWith('cact_') ||
+            customId.startsWith('cabil_') ||
+            customId.startsWith('cabt_') ||
+            customId.startsWith('ctw_') ||
+            customId.startsWith('cop_') ||
+            customId.startsWith('cret_') ||
+            customId.startsWith('cretopp_') ||
+            customId.startsWith('cmodal_') ||
             customId.startsWith('cas_') ||
             customId.startsWith('cet_') ||
             customId.startsWith('csm_') || // Combat Skill Maneuver

@@ -1,7 +1,12 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { createLogger } = require('../utils/logger');
 const { getResource, spendResource, restoreResource, setResource, RESOURCE_TYPES } = require('../services/resources');
-const { createResourceEmbed } = require('../utils/resourceUtils');
+const {
+    buildNoticeComponentPayload,
+    buildResourceComponentPayload,
+    deferForComponents,
+    editDeferredComponents,
+} = require('../utils/componentViews');
 const log = createLogger('schicksalspunkte');
 
 const TYPE = 'schicksalspunkte';
@@ -51,7 +56,7 @@ module.exports = {
         ),
 
     async execute(interaction) {
-        await interaction.deferReply({ ephemeral: true });
+        await deferForComponents(interaction, { ephemeral: true });
 
         const subcommand = interaction.options.getSubcommand();
         const targetUser = interaction.options.getUser('target');
@@ -62,13 +67,10 @@ module.exports = {
         try {
             if (subcommand === 'show') {
                 const { characterName, current, max } = await getResource(ctx, { type: TYPE, targetDiscordId });
-                const embed = createResourceEmbed(characterName, META, current, current, max, 'show')
-                    .setFooter({
-                        text: `Requested by ${interaction.user.username}`,
-                        iconURL: interaction.user.avatarURL(),
-                    })
-                    .setTimestamp();
-                return interaction.editReply({ embeds: [embed] });
+                return editDeferredComponents(
+                    interaction,
+                    buildResourceComponentPayload(characterName, META, current, current, max, 'show')
+                );
             }
 
             if (subcommand === 'spend') {
@@ -78,10 +80,10 @@ module.exports = {
                     amount,
                     targetDiscordId,
                 });
-                const embed = createResourceEmbed(characterName, META, oldValue, newValue, max, 'spend')
-                    .setFooter({ text: `Used by ${interaction.user.username}`, iconURL: interaction.user.avatarURL() })
-                    .setTimestamp();
-                return interaction.editReply({ embeds: [embed] });
+                return editDeferredComponents(
+                    interaction,
+                    buildResourceComponentPayload(characterName, META, oldValue, newValue, max, 'spend')
+                );
             }
 
             if (subcommand === 'restore') {
@@ -92,17 +94,15 @@ module.exports = {
                     targetDiscordId,
                 });
                 if (actualAmount === 0) {
-                    return interaction.editReply({
-                        content: `ℹ️ Already at maximum Schicksalspunkte (${oldValue}/${max})`,
-                    });
+                    return editDeferredComponents(
+                        interaction,
+                        buildNoticeComponentPayload(`ℹ️ Already at maximum Schicksalspunkte (${oldValue}/${max})`)
+                    );
                 }
-                const embed = createResourceEmbed(characterName, META, oldValue, newValue, max, 'restore')
-                    .setFooter({
-                        text: `Restored by ${interaction.user.username}`,
-                        iconURL: interaction.user.avatarURL(),
-                    })
-                    .setTimestamp();
-                return interaction.editReply({ embeds: [embed] });
+                return editDeferredComponents(
+                    interaction,
+                    buildResourceComponentPayload(characterName, META, oldValue, newValue, max, 'restore')
+                );
             }
 
             if (subcommand === 'set') {
@@ -112,24 +112,34 @@ module.exports = {
                     value,
                     targetDiscordId,
                 });
-                const embed = createResourceEmbed(characterName, META, oldValue, newValue, max, 'set')
-                    .setFooter({ text: `Set by ${interaction.user.username}`, iconURL: interaction.user.avatarURL() })
-                    .setTimestamp();
-                return interaction.editReply({ embeds: [embed] });
+                return editDeferredComponents(
+                    interaction,
+                    buildResourceComponentPayload(characterName, META, oldValue, newValue, max, 'set')
+                );
             }
         } catch (error) {
             if (error.status === 404) {
-                return interaction.editReply({
-                    content: isSelf
-                        ? '❌ No character selected! Use `/character select` first.'
-                        : '❌ Target has no selected character.',
-                });
+                return editDeferredComponents(
+                    interaction,
+                    buildNoticeComponentPayload(
+                        isSelf
+                            ? '❌ No character selected! Use `/character select` first.'
+                            : '❌ Target has no selected character.',
+                        { theme: 'error' }
+                    )
+                );
             }
             if (error.status === 400) {
-                return interaction.editReply({ content: `❌ ${error.data?.error || error.message}` });
+                return editDeferredComponents(
+                    interaction,
+                    buildNoticeComponentPayload(`❌ ${error.data?.error || error.message}`, { theme: 'error' })
+                );
             }
             log.error({ error }, 'Schicksalspunkte command error');
-            return interaction.editReply({ content: `❌ An error occurred: ${error.message}` });
+            return editDeferredComponents(
+                interaction,
+                buildNoticeComponentPayload(`❌ An error occurred: ${error.message}`, { theme: 'error' })
+            );
         }
     },
 };

@@ -3,6 +3,7 @@ const { equipItem, getEquipmentSummary, unequipItem } = require('../services/equ
 const { unequipWeapon } = require('../services/inventory');
 const { createLogger } = require('../utils/logger');
 const { createEmbed, progressBar } = require('../utils/embedUtils');
+const { addVisibilityOption, deferWithVisibility } = require('../utils/interactionVisibility');
 const log = createLogger('equipment');
 
 const SLOT_CHOICES = ['HEAD', 'BODY', 'ARMS', 'HANDS', 'LEGS', 'FEET', 'BACK', 'WAIST', 'NECK', 'ACCESSORY'].map(
@@ -13,7 +14,9 @@ module.exports = {
     data: new SlashCommandBuilder()
         .setName('equipment')
         .setDescription('Show or change equipped armor, clothing, and weapons')
-        .addSubcommand(command => command.setName('show').setDescription('Show equipment and carrying state'))
+        .addSubcommand(command =>
+            addVisibilityOption(command.setName('show').setDescription('Show equipment and carrying state'))
+        )
         .addSubcommand(command =>
             command
                 .setName('equip-item')
@@ -40,9 +43,10 @@ module.exports = {
         ),
 
     async execute(interaction) {
-        await interaction.deferReply({ ephemeral: true });
         const ctx = { discordId: interaction.user.id };
         const subcommand = interaction.options.getSubcommand();
+        if (subcommand === 'show') await deferWithVisibility(interaction);
+        else await interaction.deferReply({ ephemeral: true });
         try {
             if (subcommand === 'show') {
                 const summary = await getEquipmentSummary(ctx);

@@ -234,13 +234,90 @@ function buildAbilityListEmbeds(result) {
     });
 }
 
+function buildPartyOverviewEmbeds(party, user) {
+    return buildListEmbeds({
+        title: '🧭 Party Overview',
+        theme: 'character',
+        description: `**${party.length} enrolled character${party.length === 1 ? '' : 's'}**`,
+        lines: party.map(character => {
+            const resources = [
+                `LeP ${character.leCurrent ?? 0}/${character.leMax ?? 0}`,
+                `INI ${character.initiative ?? 0}`,
+                `Wounds ${character.wounds ?? 0}`,
+            ];
+            if ((character.aspMax ?? 0) > 0) resources.push(`AsP ${character.aspCurrent ?? 0}/${character.aspMax}`);
+            if ((character.kapMax ?? 0) > 0) resources.push(`KaP ${character.kapCurrent ?? 0}/${character.kapMax}`);
+            if ((character.fateMax ?? 0) > 0) resources.push(`Fate ${character.fateCurrent ?? 0}/${character.fateMax}`);
+            return `<@${character.discordId}> — **${character.name}**\n${resources.join(' · ')}`;
+        }),
+        emptyMessage:
+            'No characters have joined this server party. Players can use `/party join` after selecting a character.',
+        footer: makeFooter(user),
+        timestamp: true,
+    });
+}
+
+function buildInitiativeTrackerEmbeds(tracker, user) {
+    const entries = Array.isArray(tracker.entries) ? tracker.entries : [];
+    return buildListEmbeds({
+        title: `⏱️ ${tracker.title}`,
+        theme: 'combat',
+        description: entries.length
+            ? `**Round ${Math.max(1, tracker.current_round || 1)}** · ${entries.length} participant${entries.length === 1 ? '' : 's'}`
+            : '**Ready for participants**',
+        lines: entries.map((entry, index) => {
+            const marker = index === tracker.current_entry_index ? '▶' : '•';
+            const detail = entry.roll == null ? 'manual' : `INI ${entry.baseInitiative} + 1W6 (${entry.roll})`;
+            return `${marker} **${index + 1}. ${entry.name}** — **${entry.total}** · ${detail}`;
+        }),
+        emptyMessage: 'No entries yet. Use `/initiative add` to add a participant.',
+        footer: makeFooter(user, 'Managed by'),
+        timestamp: true,
+    });
+}
+
+function buildSessionNoteEmbed(note, user) {
+    const embed = createEmbed('info')
+        .setTitle(`📝 ${truncateText(note.title, 250)}`)
+        .setDescription(truncateText(note.body, 4000))
+        .addFields(
+            { name: 'Session date', value: note.session_date || 'Not specified', inline: true },
+            {
+                name: 'Last updated',
+                value: `<t:${Math.floor(new Date(note.updated_at).getTime() / 1000)}:R>`,
+                inline: true,
+            }
+        )
+        .setFooter(makeFooter(user, 'Viewed by'));
+    return embed;
+}
+
+function buildSessionNoteListEmbeds(notes, user) {
+    return buildListEmbeds({
+        title: '📝 Session Notes',
+        theme: 'info',
+        description: `**${notes.length} saved note${notes.length === 1 ? '' : 's'}**`,
+        lines: notes.map(note => {
+            const date = note.session_date || new Date(note.created_at).toISOString().slice(0, 10);
+            return `**${note.title}** · ${date}\n${truncateText(note.body, 180)}`;
+        }),
+        emptyMessage: 'No session notes yet. Use `/session-notes add` to create one.',
+        footer: makeFooter(user),
+        timestamp: true,
+    });
+}
+
 module.exports = {
     buildAbilityListEmbeds,
     buildCharacterStatsEmbed,
     buildInventoryEmbeds,
+    buildInitiativeTrackerEmbeds,
     buildManeuverDetailEmbed,
     buildManeuverListEmbeds,
     buildMobListEmbeds,
+    buildPartyOverviewEmbeds,
+    buildSessionNoteEmbed,
+    buildSessionNoteListEmbeds,
     buildWeaponEmbeds,
     formatWeight,
 };

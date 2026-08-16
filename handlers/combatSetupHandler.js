@@ -23,6 +23,12 @@ const { eq, and } = require('drizzle-orm');
 // would put that line in the temporal-dead-zone of the inner binding and break the query.
 const { players, stats: statsTable, mobs, combatSessions, combatants } = require('../db/schema');
 const { createSetupEmbed, createSetupActionRows } = require('../utils/combatComponents');
+const {
+    buildCombatSetupComponentPayload,
+    buildNoticeComponentPayload,
+    editComponentMessage,
+    messageUsesComponentsV2,
+} = require('../utils/componentViews');
 const { createLogger } = require('../utils/logger');
 const { beginCombat } = require('../services/combat');
 
@@ -180,13 +186,18 @@ async function updateSetupMessage(client, sessionId) {
             const canStart =
                 updatedSession.state === 'SETUP' && updatedSession.combatants?.length >= 2 && hasPlayers && hasHostiles;
 
-            const newEmbed = createSetupEmbed(sessionId, dmUsername, updatedSession.combatants, canStart);
             const newActionRows = createSetupActionRows(sessionId, canStart);
-
-            await originalMessage.edit({
-                embeds: [newEmbed],
-                components: newActionRows,
-            });
+            if (messageUsesComponentsV2(originalMessage)) {
+                await editComponentMessage(
+                    originalMessage,
+                    buildCombatSetupComponentPayload(sessionId, dmUsername, updatedSession.combatants, canStart, {
+                        actionRows: newActionRows,
+                    })
+                );
+            } else {
+                const newEmbed = createSetupEmbed(sessionId, dmUsername, updatedSession.combatants, canStart);
+                await originalMessage.edit({ embeds: [newEmbed], components: newActionRows });
+            }
             log.info({ sessionId, canStart }, 'Setup message updated');
         }
     } catch (error) {
@@ -495,7 +506,14 @@ async function handleCancelCombatInteraction(interaction, sessionId) {
             if (channel?.isTextBased()) {
                 const msg = await channel.messages.fetch(session.message_id).catch(() => {});
                 if (msg) {
-                    await msg.edit({ content: `*Setup cancelled.*`, embeds: [], components: [] }).catch(() => {});
+                    if (messageUsesComponentsV2(msg)) {
+                        await editComponentMessage(
+                            msg,
+                            buildNoticeComponentPayload('*Setup cancelled.*', { theme: 'error' })
+                        ).catch(() => {});
+                    } else {
+                        await msg.edit({ content: `*Setup cancelled.*`, embeds: [], components: [] }).catch(() => {});
+                    }
                 }
             }
         }

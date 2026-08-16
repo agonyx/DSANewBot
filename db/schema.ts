@@ -106,6 +106,8 @@ export const stats = pgTable('stats', {
     ausweichen: integer().default(0).notNull(),
     attacke_basis: integer().default(0).notNull(),
     parade_basis: integer().default(0).notNull(),
+    seelenkraft: integer().default(0).notNull(),
+    zaehigkeit: integer().default(0).notNull(),
     ap_total: integer().default(0).notNull(),
     ap_available: integer().default(0).notNull(),
     ap_spent: integer().default(0).notNull(),
@@ -124,6 +126,145 @@ export const diceMacros = pgTable(
         updated_at: timestamp({ withTimezone: true }).defaultNow().notNull(),
     },
     table => [unique('dice_macros_player_id_name_key').on(table.player_id, table.name)]
+);
+
+export interface InitiativeTrackerEntry {
+    id: string;
+    characterId: number | null;
+    discordId: string | null;
+    name: string;
+    baseInitiative: number;
+    roll: number | null;
+    total: number;
+}
+
+/** Explicit, guild-scoped party membership. A player opts a character into each server independently. */
+export const partyMemberships = pgTable(
+    'party_memberships',
+    {
+        id: uuid().primaryKey().defaultRandom(),
+        guild_id: text().notNull(),
+        discord_id: text().notNull(),
+        player_id: integer()
+            .notNull()
+            .references(() => players.id, { onDelete: 'cascade' }),
+        joined_at: timestamp({ withTimezone: true }).defaultNow().notNull(),
+        updated_at: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    },
+    table => [unique('party_memberships_guild_id_discord_id_key').on(table.guild_id, table.discord_id)]
+);
+
+/** Lightweight initiative state for scenes that do not need a full combat session. */
+export const initiativeTrackers = pgTable(
+    'initiative_trackers',
+    {
+        id: uuid().primaryKey().defaultRandom(),
+        guild_id: text().notNull(),
+        channel_id: text().notNull(),
+        title: text().default('Initiative').notNull(),
+        entries: jsonb()
+            .$type<InitiativeTrackerEntry[]>()
+            .default(sql`'[]'::jsonb`)
+            .notNull(),
+        current_entry_index: integer().default(0).notNull(),
+        current_round: integer().default(1).notNull(),
+        created_by_discord_id: text().notNull(),
+        created_at: timestamp({ withTimezone: true }).defaultNow().notNull(),
+        updated_at: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    },
+    table => [unique('initiative_trackers_guild_id_channel_id_key').on(table.guild_id, table.channel_id)]
+);
+
+/** Guild-scoped campaign notes authored by members with DM permissions. */
+export const sessionNotes = pgTable('session_notes', {
+    id: uuid().primaryKey().defaultRandom(),
+    guild_id: text().notNull(),
+    title: text().notNull(),
+    body: text().notNull(),
+    session_date: text(),
+    created_by_discord_id: text().notNull(),
+    updated_by_discord_id: text().notNull(),
+    created_at: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp({ withTimezone: true }).defaultNow().notNull(),
+});
+
+/**
+ * Flexible, guild-scoped campaign content. `kind` identifies the validated
+ * payload shape (quest, encounter_table, map, stronghold, faction, or
+ * alchemy_recipe); services remain responsible for interpreting `data`.
+ */
+export const campaignRecords = pgTable(
+    'campaign_records',
+    {
+        id: uuid().primaryKey().defaultRandom(),
+        guild_id: text().notNull(),
+        kind: text().notNull(),
+        name: text().notNull(),
+        status: text().default('ACTIVE').notNull(),
+        data: jsonb()
+            .$type<Record<string, unknown>>()
+            .default(sql`'{}'::jsonb`)
+            .notNull(),
+        created_by_discord_id: text().notNull(),
+        updated_by_discord_id: text().notNull(),
+        created_at: timestamp({ withTimezone: true }).defaultNow().notNull(),
+        updated_at: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    },
+    table => [unique('campaign_records_guild_kind_name_key').on(table.guild_id, table.kind, table.name)]
+);
+
+/** One canonical in-world clock and weather state per Discord server. */
+export const campaignWorlds = pgTable('campaign_worlds', {
+    guild_id: text().primaryKey(),
+    current_time: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    weather: text().default('Clear').notNull(),
+    updated_by_discord_id: text().notNull(),
+    updated_at: timestamp({ withTimezone: true }).defaultNow().notNull(),
+});
+
+/**
+ * Character-owned extensions such as companions, mounts, backgrounds,
+ * reputation entries, crafting projects, and alchemy brews.
+ */
+export const characterRecords = pgTable(
+    'character_records',
+    {
+        id: uuid().primaryKey().defaultRandom(),
+        player_id: integer()
+            .notNull()
+            .references(() => players.id, { onDelete: 'cascade' }),
+        kind: text().notNull(),
+        name: text().notNull(),
+        status: text().default('ACTIVE').notNull(),
+        data: jsonb()
+            .$type<Record<string, unknown>>()
+            .default(sql`'{}'::jsonb`)
+            .notNull(),
+        created_by_discord_id: text().notNull(),
+        created_at: timestamp({ withTimezone: true }).defaultNow().notNull(),
+        updated_at: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    },
+    table => [unique('character_records_player_kind_name_key').on(table.player_id, table.kind, table.name)]
+);
+
+/** Outbound HTTPS integrations. URLs are never returned from list operations or backups. */
+export const webhookSubscriptions = pgTable(
+    'webhook_subscriptions',
+    {
+        id: uuid().primaryKey().defaultRandom(),
+        guild_id: text().notNull(),
+        name: text().notNull(),
+        url: text().notNull(),
+        event_types: jsonb()
+            .$type<string[]>()
+            .default(sql`'["*"]'::jsonb`)
+            .notNull(),
+        enabled: boolean().default(true).notNull(),
+        created_by_discord_id: text().notNull(),
+        created_at: timestamp({ withTimezone: true }).defaultNow().notNull(),
+        updated_at: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    },
+    table => [unique('webhook_subscriptions_guild_name_key').on(table.guild_id, table.name)]
 );
 
 export const talents = pgTable('talents', {
@@ -485,6 +626,9 @@ export const weapons = pgTable('weapons', {
     shield_pa_bonus: integer().default(0).notNull(),
     is_equipped: equippedStatusEnum().default('N').notNull(),
     equipped_slot: equippedSlotEnum(),
+    is_dropped: boolean().default(false).notNull(),
+    dropped_session_id: uuid(),
+    dropped_at: timestamp({ withTimezone: true }),
 });
 
 export const items = pgTable('items', {
@@ -618,9 +762,44 @@ export const combatants = pgTable('combatants', {
     last_hit_zone: text(),
     movement_speed: integer().default(8).notNull(),
     reload_remaining: integer().default(0).notNull(),
+    action_spent: boolean().default(false).notNull(),
+    free_action_spent: boolean().default(false).notNull(),
+    ongoing_action: jsonb().$type<{
+        type: string;
+        label: string;
+        startedAt: string;
+        completesAt?: string;
+    } | null>(),
     initiative_base: integer().default(0).notNull(),
     initiative_roll: integer(),
     is_active_turn: boolean().default(false).notNull(),
+    created_at: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp({ withTimezone: true }).defaultNow().notNull(),
+});
+
+/** Durable action journal. Pending attack rows own defender-choice state. */
+export const combatActions = pgTable('combat_actions', {
+    id: uuid().primaryKey().defaultRandom(),
+    session_id: uuid()
+        .notNull()
+        .references(() => combatSessions.id, { onDelete: 'cascade' }),
+    actor_id: uuid()
+        .notNull()
+        .references(() => combatants.id, { onDelete: 'cascade' }),
+    target_id: uuid().references(() => combatants.id, { onDelete: 'set null' }),
+    action_kind: text().notNull(), // ACTION | FREE_ACTION | DEFENSE | SYSTEM_REACTION
+    action_type: text().notNull(), // ATTACK | GENERIC | RESOURCE | ...
+    status: text().default('PENDING').notNull(), // PENDING | RESOLVING | RESOLVED | CANCELLED
+    payload: jsonb()
+        .$type<Record<string, unknown>>()
+        .default(sql`'{}'::jsonb`)
+        .notNull(),
+    result: jsonb().$type<Record<string, unknown> | null>(),
+    decision: text(),
+    decision_by_discord_id: text(),
+    version: integer().default(1).notNull(),
+    expires_at: timestamp({ withTimezone: true }),
+    resolved_at: timestamp({ withTimezone: true }),
     created_at: timestamp({ withTimezone: true }).defaultNow().notNull(),
     updated_at: timestamp({ withTimezone: true }).defaultNow().notNull(),
 });

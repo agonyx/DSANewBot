@@ -6,14 +6,17 @@ const { readAvatar } = require('../utils/avatarStorage');
 const { rollDice } = require('../utils/rollUtil');
 const { createLogger } = require('../utils/logger');
 const { createEmbed, makeFooter } = require('../utils/embedUtils');
+const { addVisibilityOption, deferWithVisibility } = require('../utils/interactionVisibility');
 const log = createLogger('evade');
 
 module.exports = {
-    data: new SlashCommandBuilder()
-        .setName('evade')
-        .setDescription('Attempt to dodge an attack using your Ausweichen skill'),
+    data: addVisibilityOption(
+        new SlashCommandBuilder()
+            .setName('evade')
+            .setDescription('Attempt to dodge an attack using your Ausweichen skill')
+    ),
     async execute(interaction) {
-        await interaction.deferReply({ ephemeral: true });
+        await deferWithVisibility(interaction);
 
         try {
             const discordId = interaction.user.id;
@@ -81,7 +84,7 @@ module.exports = {
                         files.push(new AttachmentBuilder(avatarBuffer, { name: 'avatar.png' }));
                         embed.setThumbnail('attachment://avatar.png');
                     }
-                } catch (e) {
+                } catch {
                     // Avatar fetch failed, continue without it
                 }
             }

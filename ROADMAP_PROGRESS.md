@@ -4,7 +4,7 @@ Evidence-based implementation ledger for the committed roadmap scope. This file
 tracks the repository state, not aspirational status. It is updated after every
 checkpoint.
 
-Last audit: 2026-08-14
+Last audit: 2026-08-16
 
 ## Status key
 
@@ -16,17 +16,17 @@ Last audit: 2026-08-14
 
 ## Current verification baseline
 
-| Check                   | Result         | Evidence / limitation                                                                                                                                                         |
-| ----------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Full test gate          | **PASS**       | `npm test` on isolated Netcup PostgreSQL: 142/142 Node API/mechanics tests and 220/220 Jest command/unit tests pass (362 total).                                              |
-| Command surface         | **PASS**       | 76 source modules validate as exactly 36 production commands and 38 development commands; canonical family trees and `/inventory`, `/inv`, `/items` equivalence are asserted. |
-| TypeScript              | **PASS**       | `npx tsc --noEmit`: zero errors at the final verified revision.                                                                                                               |
-| Lint                    | **PASS**       | `npm run lint`: zero errors and 23 pre-existing warnings (two fewer than the starting baseline; no new warnings).                                                             |
-| Repository formatting   | **KNOWN FAIL** | Pre-existing baseline is 87 files. Per the execution contract, unrelated files were not reformatted.                                                                          |
-| Changed-file formatting | **PASS**       | Prettier passes on every formatter-supported file changed by the committed roadmap, Nice-to-Have, and command-cleanup slices.                                                 |
-| Migration               | **PASS**       | A fresh `pgvector/pgvector:pg16` container applied all 11 ordered migration files plus vector SQL; Drizzle reports 35 tables and no schema changes.                           |
-| Catalog seed            | **PASS**       | Two consecutive clean-room seed runs succeeded: 59 talents, 14 maneuvers, 461 spells, 353 liturgies, 20 equipment entries, and 967 special abilities.                         |
-| Isolation               | **PASS**       | Command-cleanup regression tests ran in a disposable Node container on the separate `dsa-discord-test` network/database; production `dsa-db` was not contacted.               |
+| Check                   | Result         | Evidence / limitation                                                                                                                                                  |
+| ----------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Full test gate          | **PASS**       | `npm test` on isolated Netcup PostgreSQL: 182/182 Node API/mechanics tests and 276/276 Jest command/unit tests pass (458 total).                                       |
+| Command surface         | **PASS**       | 89 source modules validate as exactly 46 production commands and 49 development commands; canonical family trees and aliases are asserted.                             |
+| TypeScript              | **PASS**       | `npx tsc --noEmit`: zero errors at the final verified revision.                                                                                                        |
+| Lint                    | **PASS**       | `npm run lint`: zero errors and 10 existing warnings.                                                                                                                  |
+| Repository formatting   | **KNOWN FAIL** | Pre-existing baseline is 87 files. Per the execution contract, unrelated files were not reformatted.                                                                   |
+| Changed-file formatting | **PASS**       | Prettier passes on every formatter-supported file changed by the combat/import/Components V2 completion slice.                                                         |
+| Migration               | **PASS**       | A fresh `pgvector/pgvector:pg16` container applied all 16 ordered migrations (`0000`–`0015`) and exposed 43 public tables.                                             |
+| Catalog seed            | **PASS**       | The clean-room seed succeeded with 59 talents, 14 maneuvers, 461 spells, 353 liturgies, 20 equipment entries, and 967 special abilities.                               |
+| Isolation               | **PASS**       | The regression gate ran on a disposable container and database on the separate `dsa-discord-test` network; production `dsa-db` and `dsa-discord-bot` were not mutated. |
 
 The scoped Graphify pass found 1,165 DSANewBot nodes, 2,199 relationships, and
 58 labeled communities. The bounded semantic retry produced 50 document nodes,
@@ -467,3 +467,31 @@ local-Docker blocker without touching the production database or container.
   baseline); Git whitespace and changed-file Prettier checks pass. The refreshed
   `dsa-discord-test-bot` is logged in as `Singularity#0898`, has zero restarts, and
   returns HTTP 200 for both `/health` and `/ready` against the isolated test database.
+
+### 2026-08-16 — Combat, PDF import, and Components V2 completion
+
+- Completed the maneuver matrix with persisted dropped equipment, retrieval and
+  opportunity consequences, full defense, trip, grapple, charge, called shots,
+  eligibility rules, and transaction rollback coverage. The tests exposed and
+  fixed a cross-user defense-resolution authorization defect.
+- Completed all six `DSA5-Dokument V1.93` import slices, including SK/ZK,
+  advantages/disadvantages, zoned armor, typed unresolved records, and whole-import
+  rollback. Generated fixtures and namespaced catalog rows keep personal data and
+  shared seed data out of the test boundary.
+- Migrated new combat lifecycle messages, character/resource views, and
+  spell/liturgy/maneuver details and results to Components V2. Legacy combat
+  messages retain their embed update path, while long paginated catalogs remain
+  embeds by design. Six development-only prototype views remain available for the
+  user's desktop/mobile visual approval.
+- Added the missing path-form pending-attack endpoint used by the Discord workflow.
+  New and existing route coverage now exercises both the persisted decision flow
+  and restart-safe lookup.
+- Verification on a freshly migrated and seeded disposable Netcup PostgreSQL
+  database: 182/182 API/mechanics tests and 276/276 Jest tests pass (458 total),
+  followed by validation of 89 command modules as 46 production and 49 development
+  commands. TypeScript, Git whitespace, and scoped Prettier checks pass; lint has
+  zero errors and 10 existing warnings.
+- No production database migration, bot deployment, command publication, commit,
+  or push was performed for this checkpoint. The disposable database, test-runner
+  containers, and remote code copy were removed after verification; production
+  `dsa-db` remained healthy and `dsa-discord-bot` remained running.

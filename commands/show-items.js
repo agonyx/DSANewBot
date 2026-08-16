@@ -5,25 +5,23 @@ const { readAvatar } = require('../utils/avatarStorage');
 const { createLogger } = require('../utils/logger');
 const { createEmbed } = require('../utils/embedUtils');
 const { buildInventoryEmbeds } = require('../utils/embedViews');
+const { addVisibilityOption, deferWithVisibility } = require('../utils/interactionVisibility');
 const log = createLogger('show-items');
 
 module.exports = {
-    data: new SlashCommandBuilder()
-        .setName('show-items')
-        .setDescription('Displays the items of your selected character.')
-        .addBooleanOption(option =>
-            option.setName('visible').setDescription('Make the response visible to everyone in the channel.')
-        ),
+    data: addVisibilityOption(
+        new SlashCommandBuilder().setName('show-items').setDescription('Displays the items of your selected character.')
+    ),
 
     async execute(interaction) {
-        const visible = interaction.options.getBoolean('visible', false);
+        await deferWithVisibility(interaction);
 
         try {
             const player = await getSelectedPlayer({ discordId: interaction.user.id });
             const itemsList = await listItems({ discordId: interaction.user.id });
 
             if (!itemsList || itemsList.length === 0) {
-                return interaction.reply({
+                return interaction.editReply({
                     embeds: [
                         createEmbed('inventory')
                             .setTitle(`🎒 ${player.name} — Inventory`)
@@ -31,7 +29,6 @@ module.exports = {
                                 'This inventory is empty. Use `/inventory add` or `/shop buy` to add gear.'
                             ),
                     ],
-                    ephemeral: true,
                 });
             }
 
@@ -43,25 +40,23 @@ module.exports = {
                     if (avatarBuffer) {
                         const attachment = new AttachmentBuilder(avatarBuffer, { name: 'avatar.png' });
                         embeds[0].setThumbnail('attachment://avatar.png');
-                        return interaction.reply({ embeds, files: [attachment], ephemeral: !visible });
+                        return interaction.editReply({ embeds, files: [attachment] });
                     }
-                } catch (e) {
+                } catch {
                     // Avatar fetch failed, continue without it
                 }
             }
 
-            return interaction.reply({ embeds, ephemeral: !visible });
+            return interaction.editReply({ embeds });
         } catch (error) {
             if (error.status === 404) {
-                return interaction.reply({
+                return interaction.editReply({
                     content: 'You have not selected a character yet. Use `/character select` first.',
-                    ephemeral: true,
                 });
             }
             log.error({ error }, 'Error showing items');
-            return interaction.reply({
+            return interaction.editReply({
                 content: 'There was an error while fetching your items.',
-                ephemeral: true,
             });
         }
     },

@@ -2,6 +2,8 @@ import { Hono } from 'hono';
 import type { Ctx } from '../../services/_ctx';
 import * as combat from '../../services/combat';
 import type { HitZone } from '../../utils/combatEffectUtils';
+import type { DefenseChoice } from '../../utils/combatRules';
+import type { ResourceKey } from '../../services/resources';
 
 type AppEnv = { Variables: { ctx: Ctx } };
 
@@ -49,25 +51,105 @@ combatRoutes.post('/:sessionId/begin', async c =>
 );
 
 combatRoutes.post('/:sessionId/attack', async c => {
-    const { attackerId, targetId, maneuverId, attackKind, hitZone, distance, coverPenalty } = await c.req.json<{
-        attackerId: string;
-        targetId: string;
-        maneuverId?: string | null;
-        attackKind?: 'standard' | 'opportunity';
-        hitZone?: HitZone | null;
-        distance?: number | null;
-        coverPenalty?: number;
-    }>();
+    const { attackerId, targetId, maneuverId, attackKind, rangedAttackType, hitZone, distance, coverPenalty } =
+        await c.req.json<{
+            attackerId: string;
+            targetId: string;
+            maneuverId?: string | null;
+            attackKind?: 'standard' | 'opportunity';
+            rangedAttackType?: 'shooting' | 'thrown';
+            hitZone?: HitZone | null;
+            distance?: number | null;
+            coverPenalty?: number;
+        }>();
     return c.json(
-        await combat.resolveAttackAction(c.get('ctx'), {
+        await combat.beginAttackAction(c.get('ctx'), {
             sessionId: c.req.param('sessionId'),
             attackerId,
             targetId,
             maneuverId,
             attackKind,
+            rangedAttackType,
             hitZone,
             distance,
             coverPenalty,
+        })
+    );
+});
+
+combatRoutes.get('/:sessionId/pending-attack', async c =>
+    c.json(
+        await combat.getPendingAttack(c.get('ctx'), {
+            sessionId: c.req.param('sessionId'),
+            actionId: c.req.query('actionId'),
+        })
+    )
+);
+
+combatRoutes.get('/:sessionId/pending-attack/:actionId', async c =>
+    c.json(
+        await combat.getPendingAttack(c.get('ctx'), {
+            sessionId: c.req.param('sessionId'),
+            actionId: c.req.param('actionId'),
+        })
+    )
+);
+
+combatRoutes.post('/:sessionId/pending-attack/:actionId/defense', async c => {
+    const { decision, force } = await c.req.json<{ decision: DefenseChoice; force?: boolean }>();
+    return c.json(
+        await combat.resolvePendingAttack(c.get('ctx'), {
+            actionId: c.req.param('actionId'),
+            sessionId: c.req.param('sessionId'),
+            decision,
+            force,
+        })
+    );
+});
+
+combatRoutes.get('/:sessionId/combatants/:combatantId/actions', async c =>
+    c.json(
+        await combat.getCombatActionMenu(c.get('ctx'), {
+            sessionId: c.req.param('sessionId'),
+            combatantId: c.req.param('combatantId'),
+        })
+    )
+);
+
+combatRoutes.post('/:sessionId/combatants/:combatantId/generic-action', async c => {
+    const { description, freeAction } = await c.req.json<{ description: string; freeAction?: boolean }>();
+    return c.json(
+        await combat.recordGenericCombatAction(c.get('ctx'), {
+            sessionId: c.req.param('sessionId'),
+            combatantId: c.req.param('combatantId'),
+            description,
+            freeAction,
+        }),
+        201
+    );
+});
+
+combatRoutes.post('/:sessionId/combatants/:combatantId/resource', async c => {
+    const { type, amount, reason } = await c.req.json<{ type: ResourceKey; amount: number; reason: string }>();
+    return c.json(
+        await combat.spendCombatResource(c.get('ctx'), {
+            sessionId: c.req.param('sessionId'),
+            combatantId: c.req.param('combatantId'),
+            type,
+            amount,
+            reason,
+        })
+    );
+});
+
+combatRoutes.post('/:sessionId/combatants/:combatantId/retrieve-weapon', async c => {
+    const { weaponId, opponentId } = await c.req.json<{ weaponId: number; opponentId?: string | null }>();
+    return c.json(
+        await combat.retrieveDroppedWeapon(c.get('ctx'), {
+            sessionId: c.req.param('sessionId'),
+            combatantId: c.req.param('combatantId'),
+            weaponId,
+            opponentId,
         })
     );
 });

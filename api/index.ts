@@ -16,6 +16,8 @@ import { supernaturalRoutes } from './routes/supernatural';
 import { economyRoutes } from './routes/economy';
 import { advancementRoutes } from './routes/advancement';
 import { diceMacroRoutes } from './routes/diceMacros';
+import { campaignRoutes } from './routes/campaign';
+import { characterRecordRoutes } from './routes/characterRecords';
 
 /**
  * The API app. Mounted under /api by server.ts. Discord commands call the same
@@ -70,4 +72,6 @@ function registerProtectedRoutes(app: Hono<AppEnv>) {
     app.route('/economy', economyRoutes);
     app.route('/advancement', advancementRoutes);
     app.route('/dice-macros', diceMacroRoutes);
+    app.route('/campaigns', campaignRoutes);
+    app.route('/character-records', characterRecordRoutes);
 }

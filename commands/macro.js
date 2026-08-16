@@ -1,6 +1,7 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { rollDice } = require('../utils/rollUtil');
-const { formatDiceRollBreakdown, rollNotation } = require('../utils/diceUtils');
+const { rollNotation } = require('../utils/diceUtils');
+const { formatInlineRollResult } = require('../utils/inlineRolls');
 const { deleteDiceMacro, getDiceMacro, listDiceMacros, saveDiceMacro } = require('../services/diceMacros');
 const { createLogger } = require('../utils/logger');
 const { createEmbed, makeFooter } = require('../utils/embedUtils');
@@ -95,8 +96,7 @@ module.exports = {
             if (!roll) throw new Error('Saved macro has invalid dice notation');
             const embed = createEmbed('info')
                 .setTitle(`🎲 ${result.macro.name}: ${roll.notation.toUpperCase()}`)
-                .setDescription(`**Result:** \`${roll.total}\``)
-                .addFields({ name: 'Rolls', value: `\`${formatDiceRollBreakdown(roll)}\``, inline: true })
+                .setDescription(formatInlineRollResult(roll))
                 .setFooter(makeFooter(interaction.user, 'Rolled by'))
                 .setTimestamp();
             return interaction.editReply({ embeds: [embed] });

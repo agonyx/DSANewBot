@@ -38,6 +38,25 @@ export type AbilityType = 'SPELL' | 'LITURGY';
 type SpellRow = typeof spells.$inferSelect;
 type LiturgyRow = typeof liturgies.$inferSelect;
 
+async function getOwnedPlayer(ctx: Ctx, playerId?: number) {
+    if (playerId === undefined) return getSelectedPlayer(ctx);
+    const [player] = await db
+        .select()
+        .from(players)
+        .where(and(eq(players.id, playerId), eq(players.discord_id, ctx.discordId)))
+        .limit(1);
+    if (!player) throw httpError(403, 'Caller does not own this character');
+    return player;
+}
+
+async function getOwnedCharacterSheet(ctx: Ctx, playerId?: number) {
+    if (playerId === undefined) return getCharacterSheet(ctx);
+    const player = await getOwnedPlayer(ctx, playerId);
+    const [statsRow] = await db.select().from(stats).where(eq(stats.player_id, player.id)).limit(1);
+    if (!statsRow) throw httpError(404, 'Character stats not found');
+    return { player, stats: statsRow };
+}
+
 interface NormalizedAbility {
     id: string;
     type: AbilityType;
@@ -301,8 +320,8 @@ export async function learnLiturgy(ctx: Ctx, input: { liturgyId: string }) {
     });
 }
 
-export async function listLearnedSpells(ctx: Ctx) {
-    const player = await getSelectedPlayer(ctx);
+export async function listLearnedSpells(ctx: Ctx, input: { playerId?: number } = {}) {
+    const player = await getOwnedPlayer(ctx, input.playerId);
     return db
         .select({ learned: playerSpells, spell: spells })
         .from(playerSpells)
@@ -311,8 +330,8 @@ export async function listLearnedSpells(ctx: Ctx) {
         .orderBy(spells.name);
 }
 
-export async function listLearnedLiturgies(ctx: Ctx) {
-    const player = await getSelectedPlayer(ctx);
+export async function listLearnedLiturgies(ctx: Ctx, input: { playerId?: number } = {}) {
+    const player = await getOwnedPlayer(ctx, input.playerId);
     return db
         .select({ learned: playerLiturgies, liturgy: liturgies })
         .from(playerLiturgies)
@@ -601,6 +620,7 @@ export interface CastAbilityInput {
     resourceAmount?: number;
     targetDiscordId?: string | null;
     targetCombatantId?: string | null;
+    casterPlayerId?: number;
 }
 
 export async function castAbility(ctx: Ctx, input: CastAbilityInput) {
@@ -609,7 +629,7 @@ export async function castAbility(ctx: Ctx, input: CastAbilityInput) {
     if (!Number.isInteger(modifier) || modifier < -20 || modifier > 20) {
         throw httpError(400, 'modifier must be an integer from -20 to 20');
     }
-    const { player, stats: casterStats } = await getCharacterSheet(ctx);
+    const { player, stats: casterStats } = await getOwnedCharacterSheet(ctx, input.casterPlayerId);
     if (!casterStats) throw httpError(404, 'Character stats not found');
     const [{ ftw, ability }, profile, target, casterCombat] = await Promise.all([
         loadLearnedAbility(player.id, input.abilityType, input.abilityId),
@@ -766,6 +786,25 @@ export async function castAbility(ctx: Ctx, input: CastAbilityInput) {
                 completed_at: success && !pending ? new Date() : null,
             })
             .returning();
+        if (casterCombat?.session.state === 'RUNNING') {
+            const [spent] = await tx
+                .update(combatants)
+                .set({
+                    action_spent: true,
+                    ongoing_action: pending
+                        ? {
+                              type: ability.type,
+                              label: ability.name,
+                              startedAt: new Date().toISOString(),
+                              completesAt:
+                                  casting.completes_at?.toISOString() ?? new Date(Date.now() + delayMs).toISOString(),
+                          }
+                        : null,
+                })
+                .where(and(eq(combatants.id, casterCombat.combatant.id), eq(combatants.action_spent, false)))
+                .returning({ id: combatants.id });
+            if (!spent) throw httpError(409, "The caster has already spent this turn's action");
+        }
         if (pending && casterCombat) {
             await tx.insert(combatantEffects).values({
                 combatant_id: casterCombat.combatant.id,

@@ -2,25 +2,28 @@ const { SlashCommandBuilder } = require('discord.js');
 const { listManeuvers } = require('../services/maneuvers');
 const { createLogger } = require('../utils/logger');
 const { buildManeuverListEmbeds } = require('../utils/embedViews');
+const { addVisibilityOption, deferWithVisibility } = require('../utils/interactionVisibility');
 
 const log = createLogger('list-maneuvers');
 
 module.exports = {
-    data: new SlashCommandBuilder()
-        .setName('list-maneuvers')
-        .setDescription('List the combat maneuver catalog')
-        .addStringOption(option =>
-            option
-                .setName('type')
-                .setDescription('Filter by attack type')
-                .addChoices(
-                    { name: 'Melee', value: 'MELEE' },
-                    { name: 'Ranged', value: 'RANGED' },
-                    { name: 'Magic', value: 'MAGIC' }
-                )
-        ),
+    data: addVisibilityOption(
+        new SlashCommandBuilder()
+            .setName('list-maneuvers')
+            .setDescription('List the combat maneuver catalog')
+            .addStringOption(option =>
+                option
+                    .setName('type')
+                    .setDescription('Filter by attack type')
+                    .addChoices(
+                        { name: 'Melee', value: 'MELEE' },
+                        { name: 'Ranged', value: 'RANGED' },
+                        { name: 'Magic', value: 'MAGIC' }
+                    )
+            )
+    ),
     async execute(interaction) {
-        await interaction.deferReply({ ephemeral: true });
+        await deferWithVisibility(interaction);
         try {
             const maneuvers = await listManeuvers(
                 { discordId: interaction.user.id },

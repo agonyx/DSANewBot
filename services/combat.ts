@@ -13,7 +13,7 @@
  * into the same resolution path used by Discord and the HTTP API.
  */
 import { db } from '../db';
-import { eq, and, desc, inArray, like, sql } from 'drizzle-orm';
+import { eq, and, desc, inArray, like, sql, or, lt } from 'drizzle-orm';
 import {
     combatSessions,
     combatants,
@@ -24,9 +24,12 @@ import {
     actionModifications,
     playerActionModifications,
     playerTalents,
+    playerSpells,
+    playerLiturgies,
     talents,
     combatantEffects,
     combatantStatuses,
+    combatActions,
 } from '../db/schema';
 import { httpError } from '../db/operations/errors';
 import {
@@ -44,7 +47,6 @@ import {
 import {
     getCalledShotPenalty,
     getMultipleDefensePenalty,
-    getRangePenalty,
     getTwoWeaponPenalties,
     resolveHumanoidHitZone,
     type CreatureSize,
@@ -53,11 +55,21 @@ import {
 } from '../utils/combatEffectUtils';
 import type { Ctx } from './_ctx';
 import { getCombatantModifiers, loadEffectsForCombatants, processTurnEnd, processTurnStart } from './combatEffects';
+import {
+    evaluateActionAvailability,
+    evaluateDefenseOptions,
+    evaluateManeuverEligibility,
+    getRangedBandModifiers,
+    type DefenseChoice,
+    type DefenseOption,
+} from '../utils/combatRules';
+import { spendPlayerResourceInTransaction, type ResourceKey } from './resources';
 
 const MAX_LOG = 20;
 
 type SessionRow = typeof combatSessions.$inferSelect;
 type CombatantRow = typeof combatants.$inferSelect;
+type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export interface CombatState {
     session: SessionRow;
@@ -178,6 +190,7 @@ export async function addCombatant(
         wounds?: number;
         woundThreshold?: number | null;
         initiativeBase?: number;
+        creatureSize?: CreatureSize;
     }
 ) {
     const { session } = await loadSession(input.sessionId);
@@ -240,6 +253,19 @@ export async function advanceTurn(
     let { session, combatants: combatantRows } = await loadSession(sessionId);
     assertDm(session, ctx);
     if (session.state !== 'RUNNING') throw httpError(400, 'Combat is not running');
+
+    const [unresolvedAction] = await db
+        .select({ id: combatActions.id })
+        .from(combatActions)
+        .where(
+            and(
+                eq(combatActions.session_id, sessionId),
+                eq(combatActions.action_type, 'ATTACK'),
+                inArray(combatActions.status, ['PENDING', 'RESOLVING'])
+            )
+        )
+        .limit(1);
+    if (unresolvedAction) throw httpError(409, 'Resolve the pending defense before advancing the turn');
 
     let turnOrder = session.turn_order ?? [];
     if (turnOrder.length === 0) throw httpError(400, 'No combatants in turn order');
@@ -320,7 +346,14 @@ export async function advanceTurn(
         }
         const startTick = await processTurnStart(tx, found!);
         await tx.update(combatants).set({ is_active_turn: false }).where(eq(combatants.session_id, sessionId));
-        await tx.update(combatants).set({ is_active_turn: true }).where(eq(combatants.id, found!.id));
+        await tx
+            .update(combatants)
+            .set({
+                is_active_turn: true,
+                action_spent: false,
+                free_action_spent: false,
+            })
+            .where(eq(combatants.id, found!.id));
         await tx
             .update(combatSessions)
             .set({ current_turn_index: nextIndex, current_round: newRound })
@@ -392,6 +425,10 @@ async function assertCombatantCanAct(combatant: CombatantRow) {
     }
 }
 
+function assertActionAvailable(combatant: CombatantRow) {
+    if (combatant.action_spent) throw httpError(409, `${combatant.name} has already spent this turn's action`);
+}
+
 /** Spend the active action on Verteidigungshaltung (+4 PA until the next turn). */
 export async function takeFullDefense(ctx: Ctx, input: { sessionId: string; combatantId: string }) {
     const { session, combatants: rows } = await loadSession(input.sessionId);
@@ -401,6 +438,10 @@ export async function takeFullDefense(ctx: Ctx, input: { sessionId: string; comb
     assertCombatantControl(ctx, session, combatant);
     assertActiveCombatant(session, combatant);
     await assertCombatantCanAct(combatant);
+    assertActionAvailable(combatant);
+    if (combatant.free_action_spent) {
+        throw httpError(409, 'Verteidigungshaltung must be declared before any action or free action this turn');
+    }
     if (combatant.type === 'PLAYER') {
         const [learned] = await db
             .select({ id: playerActionModifications.id })
@@ -434,6 +475,7 @@ export async function takeFullDefense(ctx: Ctx, input: { sessionId: string; comb
                 set: { pa_modifier: 4, prohibits_actions: true, duration_rounds: 1, updated_at: new Date() },
             })
             .returning();
+        await tx.update(combatants).set({ action_spent: true }).where(eq(combatants.id, combatant.id));
         await appendLog(tx, input.sessionId, `${combatant.name} assumes Verteidigungshaltung (+4 PA).`);
         return inserted;
     });
@@ -449,12 +491,13 @@ export async function reloadAction(ctx: Ctx, input: { sessionId: string; combata
     assertCombatantControl(ctx, session, combatant);
     assertActiveCombatant(session, combatant);
     await assertCombatantCanAct(combatant);
+    assertActionAvailable(combatant);
     if (combatant.reload_remaining <= 0) throw httpError(400, 'No reload action is required');
     const remaining = combatant.reload_remaining - 1;
     const [updated] = await db.transaction(async tx => {
         const rows = await tx
             .update(combatants)
-            .set({ reload_remaining: remaining })
+            .set({ reload_remaining: remaining, action_spent: true })
             .where(eq(combatants.id, combatant.id))
             .returning();
         await appendLog(tx, input.sessionId, `${combatant.name} reloads (${remaining} action(s) remaining).`);
@@ -472,6 +515,7 @@ export async function escapeGrapple(ctx: Ctx, input: { sessionId: string; combat
     assertCombatantControl(ctx, session, combatant);
     assertActiveCombatant(session, combatant);
     await assertCombatantCanAct(combatant);
+    assertActionAvailable(combatant);
     const [fixed] = await db
         .select({ id: combatantStatuses.id })
         .from(combatantStatuses)
@@ -508,6 +552,7 @@ export async function escapeGrapple(ctx: Ctx, input: { sessionId: string; combat
                 );
             }
         }
+        await tx.update(combatants).set({ action_spent: true }).where(eq(combatants.id, combatant.id));
         await appendLog(
             tx,
             input.sessionId,
@@ -526,6 +571,7 @@ export async function standUp(ctx: Ctx, input: { sessionId: string; combatantId:
     assertCombatantControl(ctx, session, combatant);
     assertActiveCombatant(session, combatant);
     await assertCombatantCanAct(combatant);
+    assertActionAvailable(combatant);
     const [status] = await db
         .select({ id: combatantStatuses.id })
         .from(combatantStatuses)
@@ -534,9 +580,332 @@ export async function standUp(ctx: Ctx, input: { sessionId: string; combatantId:
     if (!status) throw httpError(400, 'Combatant is not prone');
     await db.transaction(async tx => {
         await tx.delete(combatantStatuses).where(eq(combatantStatuses.id, status.id));
+        await tx.update(combatants).set({ action_spent: true }).where(eq(combatants.id, combatant.id));
         await appendLog(tx, input.sessionId, `${combatant.name} stands up.`);
     });
     return { stoodUp: true };
+}
+
+function boundedActionText(value: string, label: string): string {
+    const normalized = String(value ?? '')
+        .replace(/[\u0000-\u001f\u007f]/g, ' ')
+        .replace(/@/g, '@\u200b')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!normalized || normalized.length > 240) throw httpError(400, `${label} must contain 1 to 240 characters`);
+    return normalized;
+}
+
+export async function getCombatActionMenu(ctx: Ctx, input: { sessionId: string; combatantId: string }) {
+    const { session, combatants: rows } = await loadSession(input.sessionId);
+    const combatant = rows.find(row => row.id === input.combatantId);
+    if (!combatant) throw httpError(404, 'Combatant not found');
+    if (session.dm_user_id !== ctx.discordId) assertCombatantControl(ctx, session, combatant);
+    const activeTurn = session.turn_order?.[session.current_turn_index ?? -1] === combatant.id;
+    const state = await getCombatantModifiers(combatant);
+    const statuses = new Set(state.state.statuses.map(status => status.status_type));
+    const hasDroppedItem = combatant.player_id
+        ? Boolean(
+              (
+                  await db
+                      .select({ id: weapons.id })
+                      .from(weapons)
+                      .where(
+                          and(
+                              eq(weapons.player_id, combatant.player_id),
+                              eq(weapons.is_dropped, true),
+                              eq(weapons.dropped_session_id, input.sessionId)
+                          )
+                      )
+                      .limit(1)
+              )[0]
+          )
+        : false;
+    let hasResourcePool = false;
+    let hasCompatibleManeuver = false;
+    let canUseTwoWeapons = false;
+    let canUseFullDefense = combatant.type === 'NPC';
+    let hasLearnedSupernatural = false;
+    const [opportunity] = await db
+        .select({ id: combatantEffects.id })
+        .from(combatantEffects)
+        .where(
+            and(eq(combatantEffects.combatant_id, combatant.id), like(combatantEffects.effect_type, 'opportunity:%'))
+        )
+        .limit(1);
+    if (combatant.player_id) {
+        const [[row], effective, [fullDefense], [learnedSpell], [learnedLiturgy]] = await Promise.all([
+            db
+                .select({ asp: stats.asp_max, kap: stats.kap_max, schp: stats.schicksalspunkte_max })
+                .from(stats)
+                .where(eq(stats.player_id, combatant.player_id)),
+            getEffectiveCombatStats(combatant),
+            db
+                .select({ id: playerActionModifications.id })
+                .from(playerActionModifications)
+                .innerJoin(
+                    actionModifications,
+                    eq(playerActionModifications.action_modification_id, actionModifications.id)
+                )
+                .where(
+                    and(
+                        eq(playerActionModifications.player_id, combatant.player_id),
+                        eq(actionModifications.name, 'Verteidigungshaltung')
+                    )
+                )
+                .limit(1),
+            db
+                .select({ id: playerSpells.id })
+                .from(playerSpells)
+                .where(eq(playerSpells.player_id, combatant.player_id))
+                .limit(1),
+            db
+                .select({ id: playerLiturgies.id })
+                .from(playerLiturgies)
+                .where(eq(playerLiturgies.player_id, combatant.player_id))
+                .limit(1),
+        ]);
+        hasResourcePool = Boolean(row && (row.asp > 0 || row.kap > 0 || row.schp > 0));
+        canUseTwoWeapons = Boolean(
+            effective.weaponId &&
+            effective.secondWeapon &&
+            effective.weaponType === 'MELEE' &&
+            effective.secondWeapon.type === 'MELEE' &&
+            !effective.isTwoHanded &&
+            !effective.secondWeapon.is_two_handed
+        );
+        canUseFullDefense = Boolean(fullDefense);
+        hasLearnedSupernatural = Boolean(learnedSpell || learnedLiturgy);
+        if (activeTurn) {
+            const evaluated = await getAvailableCombatManeuvers(ctx, {
+                sessionId: input.sessionId,
+                combatantId: combatant.id,
+            });
+            hasCompatibleManeuver = evaluated.some(entry => entry.eligibility.available);
+        }
+    }
+    const options = evaluateActionAvailability({
+        activeTurn,
+        incapacitated: isIncapacitatedByWounds(combatant.wounds) || state.modifiers.prohibitsActions,
+        actionSpent: combatant.action_spent,
+        freeActionSpent: combatant.free_action_spent,
+        reloading: combatant.reload_remaining > 0,
+        prone: statuses.has('liegend'),
+        grappled: statuses.has('fixiert') || statuses.has('eingeengt'),
+        hasDroppedItem,
+        hasResourcePool,
+        turnOpening: !combatant.action_spent && !combatant.free_action_spent,
+        hasCompatibleManeuver,
+        canUseTwoWeapons,
+        hasOpportunity: Boolean(opportunity),
+        canUseFullDefense,
+        hasLearnedSupernatural,
+    });
+    return {
+        sessionId: input.sessionId,
+        combatantId: combatant.id,
+        options,
+    };
+}
+
+export async function getAvailableCombatManeuvers(ctx: Ctx, input: { sessionId: string; combatantId: string }) {
+    const { session, combatants: rows } = await loadSession(input.sessionId);
+    const combatant = rows.find(row => row.id === input.combatantId);
+    if (!combatant) throw httpError(404, 'Combatant not found');
+    if (session.dm_user_id !== ctx.discordId) assertCombatantControl(ctx, session, combatant);
+    assertActiveCombatant(session, combatant);
+    if (!combatant.player_id) return [];
+    const effective = await getEffectiveCombatStats(combatant);
+    const learned = await db
+        .select({ maneuver: actionModifications })
+        .from(playerActionModifications)
+        .innerJoin(actionModifications, eq(playerActionModifications.action_modification_id, actionModifications.id))
+        .where(eq(playerActionModifications.player_id, combatant.player_id));
+    return learned.map(({ maneuver }) => {
+        const rules =
+            maneuver.rules && typeof maneuver.rules === 'object' ? (maneuver.rules as { type?: string }) : null;
+        const eligibility = evaluateManeuverEligibility({
+            learned: true,
+            weaponType: effective.weaponType,
+            maneuverActionType: maneuver.action_type,
+            maneuverType: rules?.type,
+            prerequisites:
+                maneuver.prerequisites && typeof maneuver.prerequisites === 'object'
+                    ? (maneuver.prerequisites as Record<string, unknown>)
+                    : null,
+            attributes: effective.attributes,
+            combatValue: effective.at,
+            handsFree: effective.handsFree,
+            combatTechnique: effective.combatTechnique,
+            learnedAbilityNames: effective.learnedAbilityNames,
+        });
+        return { maneuver, eligibility };
+    });
+}
+
+export async function recordGenericCombatAction(
+    ctx: Ctx,
+    input: { sessionId: string; combatantId: string; description: string; freeAction?: boolean }
+) {
+    const { session, combatants: rows } = await loadSession(input.sessionId);
+    if (session.state !== 'RUNNING') throw httpError(400, 'Combat is not running');
+    const combatant = rows.find(row => row.id === input.combatantId);
+    if (!combatant) throw httpError(404, 'Combatant not found');
+    assertCombatantControl(ctx, session, combatant);
+    assertActiveCombatant(session, combatant);
+    await assertCombatantCanAct(combatant);
+    const description = boundedActionText(input.description, input.freeAction ? 'Free action' : 'Action');
+    const spentColumn = input.freeAction ? combatants.free_action_spent : combatants.action_spent;
+    const actionKind = input.freeAction ? 'FREE_ACTION' : 'ACTION';
+    return db.transaction(async tx => {
+        const [spent] = await tx
+            .update(combatants)
+            .set(input.freeAction ? { free_action_spent: true } : { action_spent: true })
+            .where(and(eq(combatants.id, combatant.id), eq(spentColumn, false)))
+            .returning({ id: combatants.id });
+        if (!spent) throw httpError(409, `${actionKind.replace('_', ' ').toLowerCase()} already spent this turn`);
+        const [action] = await tx
+            .insert(combatActions)
+            .values({
+                session_id: input.sessionId,
+                actor_id: combatant.id,
+                action_kind: actionKind,
+                action_type: input.freeAction ? 'FREE_ACTION' : 'GENERIC',
+                status: 'RESOLVED',
+                payload: { description },
+                result: { recorded: true },
+                decision_by_discord_id: ctx.discordId,
+                resolved_at: new Date(),
+            })
+            .returning();
+        await appendLog(
+            tx,
+            input.sessionId,
+            `${combatant.name} uses ${input.freeAction ? 'a free action' : 'their action'}: ${description}`
+        );
+        return action;
+    });
+}
+
+export async function spendCombatResource(
+    ctx: Ctx,
+    input: { sessionId: string; combatantId: string; type: ResourceKey; amount: number; reason: string }
+) {
+    const { session, combatants: rows } = await loadSession(input.sessionId);
+    if (session.state !== 'RUNNING') throw httpError(400, 'Combat is not running');
+    const combatant = rows.find(row => row.id === input.combatantId);
+    if (!combatant) throw httpError(404, 'Combatant not found');
+    assertCombatantControl(ctx, session, combatant);
+    assertActiveCombatant(session, combatant);
+    if (!combatant.discord_user_id || !combatant.player_id) {
+        throw httpError(400, 'This combatant has no character resource pool');
+    }
+    const reason = boundedActionText(input.reason, 'Resource reason');
+    return db.transaction(async tx => {
+        const mutation = await spendPlayerResourceInTransaction(tx, {
+            playerId: combatant.player_id!,
+            type: input.type,
+            amount: input.amount,
+        });
+        await tx.insert(combatActions).values({
+            session_id: input.sessionId,
+            actor_id: combatant.id,
+            action_kind: 'SYSTEM_REACTION',
+            action_type: 'RESOURCE',
+            status: 'RESOLVED',
+            payload: { type: input.type, amount: input.amount, reason, consumesAction: false },
+            result: { oldValue: mutation.oldValue, newValue: mutation.newValue },
+            decision_by_discord_id: ctx.discordId,
+            resolved_at: new Date(),
+        });
+        await appendLog(
+            tx,
+            input.sessionId,
+            `${combatant.name} spends ${input.amount} ${input.type.toUpperCase()} (${reason}); this does not consume an action.`
+        );
+        return mutation;
+    });
+}
+
+/** Retrieve one persisted dropped weapon with a Körperbeherrschung (GE/GE/KO) check. */
+export async function retrieveDroppedWeapon(
+    ctx: Ctx,
+    input: { sessionId: string; combatantId: string; weaponId: number; opponentId?: string | null }
+) {
+    const { session, combatants: rows } = await loadSession(input.sessionId);
+    if (session.state !== 'RUNNING') throw httpError(400, 'Combat is not running');
+    const combatant = rows.find(row => row.id === input.combatantId);
+    if (!combatant?.player_id) throw httpError(404, 'Player combatant not found');
+    assertCombatantControl(ctx, session, combatant);
+    assertActiveCombatant(session, combatant);
+    await assertCombatantCanAct(combatant);
+    assertActionAvailable(combatant);
+    const [weapon] = await db
+        .select()
+        .from(weapons)
+        .where(
+            and(
+                eq(weapons.id, input.weaponId),
+                eq(weapons.player_id, combatant.player_id),
+                eq(weapons.is_dropped, true),
+                eq(weapons.dropped_session_id, input.sessionId)
+            )
+        );
+    if (!weapon) throw httpError(404, 'Dropped weapon not found');
+    const [[attributes], [bodyControl]] = await Promise.all([
+        db.select({ ge: stats.ge, ko: stats.ko }).from(stats).where(eq(stats.player_id, combatant.player_id)),
+        db
+            .select({ ftw: playerTalents.ftw })
+            .from(playerTalents)
+            .innerJoin(talents, eq(playerTalents.talent_id, talents.id))
+            .where(and(eq(playerTalents.player_id, combatant.player_id), eq(talents.name, 'Körperbeherrschung'))),
+    ]);
+    const rolls: [number, number, number] = [rollDice(20), rollDice(20), rollDice(20)];
+    const values = [attributes?.ge || 8, attributes?.ge || 8, attributes?.ko || 8];
+    const remainingFtw = rolls.reduce(
+        (remaining, roll, index) => remaining - Math.max(0, roll - values[index]),
+        bodyControl?.ftw ?? 0
+    );
+    const success = remainingFtw >= 0;
+    const opponent = input.opponentId ? rows.find(row => row.id === input.opponentId) : null;
+    if (opponent && opponent.allegiance === combatant.allegiance)
+        throw httpError(400, 'Opponent must be on the other side');
+    await db.transaction(async tx => {
+        await tx.update(combatants).set({ action_spent: true }).where(eq(combatants.id, combatant.id));
+        if (success) {
+            await tx
+                .update(weapons)
+                .set({ is_dropped: false, dropped_session_id: null, dropped_at: null })
+                .where(eq(weapons.id, weapon.id));
+        } else if (opponent) {
+            await tx
+                .insert(combatantEffects)
+                .values({
+                    combatant_id: opponent.id,
+                    effect_type: `opportunity:${combatant.id}`,
+                    source: `Failed retrieval by ${combatant.name}`,
+                    duration_rounds: null,
+                })
+                .onConflictDoUpdate({
+                    target: [combatantEffects.combatant_id, combatantEffects.effect_type],
+                    set: { source: `Failed retrieval by ${combatant.name}`, updated_at: new Date() },
+                });
+        }
+        await appendLog(
+            tx,
+            input.sessionId,
+            `${combatant.name} tries to retrieve ${weapon.name} (${rolls.join('/')}; FtW ${remainingFtw}): ${
+                success ? 'success' : 'failure'
+            }${!success && opponent ? `; ${opponent.name} gains an opportunity attack` : ''}.`
+        );
+    });
+    return {
+        success,
+        rolls,
+        remainingFtw,
+        weaponId: weapon.id,
+        opportunityGrantedTo: !success ? (opponent?.id ?? null) : null,
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -577,6 +946,7 @@ async function getEffectiveCombatStats(combatant: CombatantRow, weaponId?: numbe
         return {
             at: offensive ? offensive.at : statRow.attacke_basis || 8,
             pa: defensive ? defensive.pa : statRow.parade_basis || 6,
+            dodge: statRow.ausweichen || 0,
             rs: statRow.ruestungsschutz || 0,
             tp: offensive ? (offensive.tp ?? '1w6') : '1w6',
             weaponType: offensive?.type ?? 'MELEE',
@@ -585,6 +955,9 @@ async function getEffectiveCombatStats(combatant: CombatantRow, weaponId?: numbe
                 : 'Raufen',
             weaponId: offensive?.id ?? null,
             isTwoHanded: offensive?.is_two_handed ?? false,
+            isShield: (offensive?.shield_pa_bonus ?? 0) > 0,
+            hasParryWeapon: Boolean(defensive) || (statRow.parade_basis || 0) > 0,
+            hasShield: (defensive?.shield_pa_bonus ?? 0) > 0,
             secondWeapon: defensive && defensive.id !== offensive?.id && defensive.type === 'MELEE' ? defensive : null,
             rangeClose: offensive?.range_close ?? 10,
             rangeMedium: offensive?.range_medium ?? 50,
@@ -618,12 +991,16 @@ async function getEffectiveCombatStats(combatant: CombatantRow, weaponId?: numbe
     return {
         at: mob.base_attack_value,
         pa: mob.base_parry_value,
+        dodge: Math.max(0, mob.base_parry_value - 2),
         rs: mob.base_armor_soak,
         tp: mob.base_damage_tp ?? '1w6',
         weaponType: 'MELEE' as const,
         combatTechnique: 'Raufen',
         weaponId: null,
         isTwoHanded: false,
+        isShield: false,
+        hasParryWeapon: mob.base_parry_value > 0,
+        hasShield: false,
         secondWeapon: null,
         rangeClose: 10,
         rangeMedium: 50,
@@ -682,7 +1059,15 @@ export interface AttackResultOut {
     rangeBand: RangeBand | null;
     hitZone: HitZone | null;
     attack: { roll: number; confirmRoll: number | null; outcome: string };
-    defense: { roll: number; success: boolean } | null;
+    defense: {
+        choice: Exclude<DefenseChoice, 'DECLINE'>;
+        value: number;
+        roll: number;
+        success: boolean;
+        interruptedLongAction: boolean;
+    } | null;
+    defenseChoice: DefenseChoice | null;
+    defenseOptions: DefenseOption[];
     hitConnected: boolean;
     botchDamage: number;
     rolledDamage: number;
@@ -712,23 +1097,40 @@ export interface AttackResultOut {
     logMessage: string;
 }
 
-export async function resolveAttackAction(
-    ctx: Ctx,
-    input: {
-        sessionId: string;
-        attackerId: string;
-        targetId: string;
-        maneuverId?: string | null;
-        attackKind?: 'standard' | 'opportunity';
-        hitZone?: HitZone | null;
-        distance?: number | null;
-        coverPenalty?: number;
-        /** Internal override used by the paired-weapon action. */
-        weaponId?: number | null;
-        /** Internal AT modifier used by compound combat actions. */
-        attackAtModifier?: number;
-    }
-): Promise<AttackResultOut> {
+export interface AttackActionInput {
+    sessionId: string;
+    attackerId: string;
+    targetId: string;
+    maneuverId?: string | null;
+    attackKind?: 'standard' | 'opportunity';
+    rangedAttackType?: 'shooting' | 'thrown';
+    hitZone?: HitZone | null;
+    distance?: number | null;
+    coverPenalty?: number;
+    weaponId?: number | null;
+    attackAtModifier?: number;
+    defenseChoice?: DefenseChoice;
+}
+
+interface PreparedAttack {
+    input: AttackActionInput;
+    attacker: { id: string; name: string };
+    target: { id: string; name: string };
+    maneuverName: string | null;
+    attack: { roll: number; confirmRoll: number | null; outcome: string };
+    atValue: number;
+    defenseOptions: DefenseOption[];
+    requiresDecision: boolean;
+}
+
+interface InternalAttackInput extends AttackActionInput {
+    preparationOnly?: boolean;
+    preparedAttack?: PreparedAttack['attack'];
+    transaction?: DbTx;
+    ignoreActionSpent?: boolean;
+}
+
+async function executeAttackAction(ctx: Ctx, input: InternalAttackInput): Promise<AttackResultOut | PreparedAttack> {
     const { session, combatants: combatantRows } = await loadSession(input.sessionId);
     if (session.state !== 'RUNNING') throw httpError(400, 'Combat is not running');
 
@@ -749,6 +1151,7 @@ export async function resolveAttackAction(
     if (attackKind === 'standard' && attacker.id !== activeId) {
         throw httpError(400, "It's not the attacker's turn");
     }
+    if (attackKind === 'standard' && input.preparationOnly && !input.ignoreActionSpent) assertActionAvailable(attacker);
 
     let opportunityEffectId: string | null = null;
     if (attackKind === 'opportunity') {
@@ -767,6 +1170,7 @@ export async function resolveAttackAction(
     }
 
     let maneuver: typeof actionModifications.$inferSelect | null = null;
+    let maneuverLearned = true;
     if (input.maneuverId && input.maneuverId !== 'null') {
         const [m] = await db
             .select()
@@ -786,7 +1190,7 @@ export async function resolveAttackAction(
                     )
                 )
                 .limit(1);
-            if (!learned) throw httpError(403, 'Attacker has not learned this maneuver');
+            maneuverLearned = Boolean(learned);
         }
     }
 
@@ -801,73 +1205,56 @@ export async function resolveAttackAction(
     }
     const miracleAtEffect = attackerEffectState.state.effects.find(effect => effect.effect_type === 'miracle_at');
     const miraclePaEffect = targetEffectState.state.effects.find(effect => effect.effect_type === 'miracle_pa');
-    if (maneuver?.action_type && maneuver.action_type !== att.weaponType) {
-        throw httpError(400, `${maneuver.name} requires a ${maneuver.action_type.toLowerCase()} attack`);
-    }
-    if (maneuver?.prerequisites && typeof maneuver.prerequisites === 'object') {
-        const prerequisites = maneuver.prerequisites as Record<string, unknown>;
-        for (const attribute of ['mu', 'in', 'ge', 'ff', 'kk'] as const) {
-            const required = prerequisites[attribute];
-            if (Number.isInteger(required) && att.attributes[attribute] < (required as number)) {
-                throw httpError(400, `${maneuver.name} requires ${attribute.toUpperCase()} ${required}`);
-            }
-        }
-        if (
-            Number.isInteger(prerequisites.ge_or_kk) &&
-            Math.max(att.attributes.ge, att.attributes.kk) < (prerequisites.ge_or_kk as number)
-        ) {
-            throw httpError(400, `${maneuver.name} requires GE or KK ${prerequisites.ge_or_kk}`);
-        }
-        if (Number.isInteger(prerequisites.hands_free) && att.handsFree < (prerequisites.hands_free as number)) {
-            throw httpError(400, `${maneuver.name} requires ${prerequisites.hands_free} free hands`);
-        }
-        if (Number.isInteger(prerequisites.value) && att.at < (prerequisites.value as number)) {
-            throw httpError(400, `${maneuver.name} requires combat value ${prerequisites.value}`);
-        }
-        const requiredTechniques = [
-            ...(typeof prerequisites.technique === 'string' ? [prerequisites.technique] : []),
-            ...(Array.isArray(prerequisites.techniques)
-                ? prerequisites.techniques.filter((value): value is string => typeof value === 'string')
-                : []),
-        ];
-        if (requiredTechniques.length > 0 && !requiredTechniques.includes(att.combatTechnique)) {
+    const maneuverRules =
+        maneuver?.rules && typeof maneuver.rules === 'object'
+            ? (maneuver.rules as {
+                  type?: string;
+                  at_modifier?: number;
+                  opponent_pa_modifier?: number;
+                  damage_bonus?: number;
+              })
+            : null;
+    if (maneuver) {
+        const eligibility = evaluateManeuverEligibility({
+            learned: maneuverLearned,
+            weaponType: att.weaponType,
+            maneuverActionType: maneuver.action_type,
+            maneuverType: maneuverRules?.type,
+            prerequisites:
+                maneuver.prerequisites && typeof maneuver.prerequisites === 'object'
+                    ? (maneuver.prerequisites as Record<string, unknown>)
+                    : null,
+            attributes: att.attributes,
+            combatValue: att.at,
+            handsFree: att.handsFree,
+            combatTechnique: att.combatTechnique,
+            learnedAbilityNames: attacker.type === 'PLAYER' ? att.learnedAbilityNames : [],
+        });
+        if (!eligibility.available) {
             throw httpError(
-                400,
-                `${maneuver.name} requires one of these combat techniques: ${requiredTechniques.join(', ')}`
+                eligibility.reasonCode === 'NOT_LEARNED' ? 403 : 400,
+                `${maneuver.name} is unavailable: ${eligibility.reasonCode}${eligibility.detail ? ` (${eligibility.detail})` : ''}`
             );
         }
-        const requiredAbilities = [
-            ...(typeof prerequisites.requires === 'string' ? [prerequisites.requires] : []),
-            ...(Array.isArray(prerequisites.requires)
-                ? prerequisites.requires.filter((value): value is string => typeof value === 'string')
-                : []),
-        ];
-        const missingAbility =
-            attacker.type === 'PLAYER'
-                ? requiredAbilities.find(name => !att.learnedAbilityNames.includes(name))
-                : undefined;
-        if (missingAbility) throw httpError(400, `${maneuver.name} requires ${missingAbility}`);
     }
     let atValue = att.at - calculateWoundPenalty(attacker.wounds) + attackerEffectState.modifiers.atModifier;
     const defensePenalty = getMultipleDefensePenalty(target.defense_count, tar.defensePenaltyStep);
     let paValue =
-        tar.pa + calculateWoundPenalty(target.wounds) + targetEffectState.modifiers.paModifier - defensePenalty;
+        tar.pa - calculateWoundPenalty(target.wounds) + targetEffectState.modifiers.paModifier - defensePenalty;
     let damageBonus = 0;
     let maneuverType: string | null = null;
-    if (maneuver?.rules && typeof maneuver.rules === 'object') {
-        const r = maneuver.rules as {
-            type?: string;
-            at_modifier?: number;
-            opponent_pa_modifier?: number;
-            damage_bonus?: number;
-        };
+    if (maneuverRules) {
+        const r = maneuverRules;
         maneuverType = r.type ?? null;
-        if (maneuverType && ['full_defense', 'masterful_parry', 'two_weapon_training'].includes(maneuverType)) {
-            throw httpError(400, `${maneuver.name} is passive or uses its own combat action`);
-        }
         if (r.at_modifier) atValue += r.at_modifier;
         if (r.opponent_pa_modifier) paValue += r.opponent_pa_modifier;
         if (r.damage_bonus) damageBonus += r.damage_bonus;
+    }
+
+    if (maneuverType === 'disarm') {
+        if (!target.player_id || !tar.weaponId) throw httpError(400, 'Entwaffnen requires a target with a weapon');
+        if (tar.isShield) throw httpError(400, 'Entwaffnen cannot disarm a shield');
+        if (tar.isTwoHanded) atValue -= 2;
     }
     atValue += input.attackAtModifier ?? 0;
     damageBonus += attackerEffectState.modifiers.damageModifier;
@@ -887,7 +1274,9 @@ export async function resolveAttackAction(
         if (!Number.isInteger(coverPenalty) || coverPenalty < 0 || coverPenalty > 4) {
             throw httpError(400, 'coverPenalty must be an integer from 0 to 4');
         }
-        atValue += getRangePenalty(rangeBand) - coverPenalty;
+        const rangeModifiers = getRangedBandModifiers(rangeBand);
+        atValue += rangeModifiers.attack - coverPenalty;
+        damageBonus += rangeModifiers.damage;
     } else if (maneuverType === 'charge') {
         const runningDistance = input.distance;
         if (!Number.isInteger(runningDistance) || runningDistance! < 4) {
@@ -906,7 +1295,7 @@ export async function resolveAttackAction(
     }
 
     if (maneuverType === 'trip') {
-        const sizeOrder = { small: 0, medium: 1, large: 2 } as const;
+        const sizeOrder = { tiny: 0, small: 1, medium: 2, large: 3, huge: 4 } as const;
         const attackerSize = sizeOrder[attacker.creature_size as CreatureSize];
         const targetSize = sizeOrder[target.creature_size as CreatureSize];
         if (targetSize - attackerSize >= 2) throw httpError(400, 'Trip cannot target a creature two sizes larger');
@@ -925,18 +1314,71 @@ export async function resolveAttackAction(
         atValue += zonePenalty;
     }
 
+    if (target.creature_size === 'tiny') atValue -= 4;
+
     if (attackKind === 'opportunity') atValue -= 4;
     atValue = Math.max(0, atValue);
     paValue = Math.max(0, paValue);
 
     const attack =
-        attackKind === 'opportunity'
+        input.preparedAttack ??
+        (attackKind === 'opportunity'
             ? (() => {
                   const roll = rollDice(20);
                   return { roll, confirmRoll: null, outcome: roll <= atValue ? 'NORMAL_HIT' : 'NORMAL_MISS' };
               })()
-            : resolveAttack(atValue);
-    let defense: { roll: number; success: boolean } | null = null;
+            : resolveAttack(atValue));
+    const rulesAttackKind =
+        attackKind === 'opportunity'
+            ? ('OPPORTUNITY' as const)
+            : att.weaponType === 'RANGED'
+              ? input.rangedAttackType === 'thrown'
+                  ? ('RANGED_THROWN' as const)
+                  : ('RANGED_SHOT' as const)
+              : ('MELEE' as const);
+    const defenseOptions = evaluateDefenseOptions({
+        attackKind: rulesAttackKind,
+        attackOutcome: attack.outcome as 'CRITICAL_SUCCESS' | 'NORMAL_HIT' | 'NORMAL_MISS' | 'BOTCH',
+        defenseCount: target.defense_count,
+        penaltyStep: tar.defensePenaltyStep,
+        parryValue: tar.pa + targetEffectState.modifiers.paModifier - calculateWoundPenalty(target.wounds),
+        dodgeValue: tar.dodge + targetEffectState.modifiers.checkModifier - calculateWoundPenalty(target.wounds),
+        hasParryWeapon: tar.hasParryWeapon,
+        hasShield: tar.hasShield,
+        targetAlive: target.current_hp > 0 && !isIncapacitatedByWounds(target.wounds),
+        defenseProhibited: targetEffectState.modifiers.prohibitsDefense,
+        maneuverProhibitsDefense: attackKind === 'opportunity',
+        ongoingLongAction: Boolean(target.ongoing_action),
+        attackerSize: attacker.creature_size as CreatureSize,
+    });
+    paValue = defenseOptions.find(option => option.choice === 'PARRY')?.effectiveValue ?? 0;
+    const requiresDecision = defenseOptions.some(option => option.choice !== 'DECLINE' && option.available);
+    if (input.preparationOnly) {
+        return {
+            input: {
+                sessionId: input.sessionId,
+                attackerId: input.attackerId,
+                targetId: input.targetId,
+                maneuverId: input.maneuverId ?? null,
+                attackKind: input.attackKind,
+                rangedAttackType: input.rangedAttackType,
+                hitZone: input.hitZone ?? null,
+                distance: input.distance ?? null,
+                coverPenalty: input.coverPenalty,
+                weaponId: input.weaponId ?? null,
+                attackAtModifier: input.attackAtModifier,
+            },
+            attacker: { id: attacker.id, name: attacker.name },
+            target: { id: target.id, name: target.name },
+            maneuverName: maneuver?.name ?? null,
+            attack: { roll: attack.roll, confirmRoll: attack.confirmRoll, outcome: attack.outcome },
+            atValue,
+            defenseOptions,
+            requiresDecision,
+        };
+    }
+    let defense: AttackResultOut['defense'] = null;
+    let selectedDefense: DefenseChoice | null = null;
     let hitConnected = false;
     let botchDamage = 0;
 
@@ -944,14 +1386,31 @@ export async function resolveAttackAction(
         botchDamage = Math.max(1, Math.floor(parseAndRollDamage(att.tp) / 2));
     } else if (attack.outcome === 'CRITICAL_SUCCESS') {
         hitConnected = true;
-    } else if (
-        attack.outcome === 'NORMAL_HIT' &&
-        attackKind !== 'opportunity' &&
-        !isIncapacitatedByWounds(target.wounds) &&
-        !targetEffectState.modifiers.prohibitsDefense
-    ) {
-        defense = resolveDefense(paValue);
-        hitConnected = !defense.success;
+    } else if (attack.outcome === 'NORMAL_HIT' && attackKind !== 'opportunity') {
+        selectedDefense =
+            input.defenseChoice ??
+            defenseOptions.find(option => option.choice !== 'DECLINE' && option.available)?.choice ??
+            'DECLINE';
+        const selectedOption = defenseOptions.find(option => option.choice === selectedDefense);
+        if (!selectedOption?.available) {
+            throw httpError(
+                400,
+                `Defense ${selectedDefense} is unavailable: ${selectedOption?.reasonCode ?? 'UNKNOWN'}`
+            );
+        }
+        if (selectedDefense === 'DECLINE') {
+            hitConnected = true;
+        } else {
+            const rolled = resolveDefense(selectedOption.effectiveValue ?? 0);
+            defense = {
+                choice: selectedDefense,
+                value: selectedOption.effectiveValue ?? 0,
+                roll: rolled.roll,
+                success: rolled.success,
+                interruptedLongAction: selectedOption.interruptsLongAction,
+            };
+            hitConnected = !defense.success;
+        }
     } else if (attack.outcome === 'NORMAL_HIT') {
         hitConnected = true;
     }
@@ -960,9 +1419,9 @@ export async function resolveAttackAction(
     let totalDamage = 0;
     let finalDamage = 0;
     if (hitConnected) {
-        rolledDamage = parseAndRollDamage(att.tp);
+        rolledDamage = parseAndRollDamage(maneuverType === 'disarm' ? '1w3' : att.tp);
         if (attack.outcome === 'CRITICAL_SUCCESS') rolledDamage *= 2;
-        totalDamage = rolledDamage + damageBonus;
+        totalDamage = Math.max(0, rolledDamage + damageBonus);
         finalDamage = applySoak(totalDamage, Math.max(0, tar.rs + targetEffectState.modifiers.armorModifier));
     }
 
@@ -995,6 +1454,8 @@ export async function resolveAttackAction(
         atValue,
         attack,
         defense,
+        defenseChoice: selectedDefense,
+        defenseOptions,
         hitConnected,
         botchDamage,
         rolledDamage,
@@ -1016,11 +1477,11 @@ export async function resolveAttackAction(
         zoneDamage,
     });
 
-    await db.transaction(async tx => {
+    const applyAttackMutations = async (tx: DbTx) => {
         if (miracleAtEffect) {
             await tx.delete(combatantEffects).where(eq(combatantEffects.id, miracleAtEffect.id));
         }
-        if (miraclePaEffect && defense) {
+        if (miraclePaEffect && defense?.choice === 'PARRY') {
             await tx.delete(combatantEffects).where(eq(combatantEffects.id, miraclePaEffect.id));
         }
         if (opportunityEffectId) {
@@ -1029,8 +1490,14 @@ export async function resolveAttackAction(
         if (defense) {
             await tx
                 .update(combatants)
-                .set({ defense_count: target.defense_count + 1 })
+                .set({
+                    defense_count: target.defense_count + 1,
+                    ...(defense.interruptedLongAction ? { ongoing_action: null } : {}),
+                })
                 .where(eq(combatants.id, target.id));
+            if (defense.interruptedLongAction) {
+                await appendLog(tx, input.sessionId, `${target.name}'s longer action is interrupted by the defense.`);
+            }
         }
         if (att.weaponType === 'RANGED' && att.reloadActions > 0) {
             await tx
@@ -1091,15 +1558,22 @@ export async function resolveAttackAction(
         };
 
         const disarmTarget = async () => {
-            if (!target.player_id) return;
+            if (!target.player_id || !tar.weaponId) return;
             const dropped = await tx
                 .update(weapons)
-                .set({ is_equipped: 'N', equipped_slot: null })
+                .set({
+                    is_equipped: 'N',
+                    equipped_slot: null,
+                    is_dropped: true,
+                    dropped_session_id: input.sessionId,
+                    dropped_at: new Date(),
+                })
                 .where(
                     and(
+                        eq(weapons.id, tar.weaponId),
                         eq(weapons.player_id, target.player_id),
                         eq(weapons.is_equipped, 'Y'),
-                        inArray(weapons.equipped_slot, ['OFFENSE', 'ADAPTIVE'])
+                        eq(weapons.is_dropped, false)
                     )
                 )
                 .returning({ id: weapons.id });
@@ -1188,7 +1662,9 @@ export async function resolveAttackAction(
                 `${target.name} gains an opportunity attack against ${attacker.name}.`
             );
         }
-    });
+    };
+    if (input.transaction) await applyAttackMutations(input.transaction);
+    else await db.transaction(applyAttackMutations);
 
     return {
         sessionId: input.sessionId,
@@ -1204,6 +1680,8 @@ export async function resolveAttackAction(
         hitZone,
         attack: { roll: attack.roll, confirmRoll: attack.confirmRoll, outcome: attack.outcome },
         defense,
+        defenseChoice: selectedDefense,
+        defenseOptions,
         hitConnected,
         botchDamage,
         rolledDamage,
@@ -1229,15 +1707,270 @@ export async function resolveAttackAction(
     };
 }
 
+/**
+ * Immediate resolver kept for compound/internal actions. Interactive and HTTP
+ * entry points should use beginAttackAction + resolvePendingAttack so the
+ * defender owns the choice.
+ */
+export async function resolveAttackAction(ctx: Ctx, input: AttackActionInput): Promise<AttackResultOut> {
+    const result = await executeAttackAction(ctx, input);
+    if ('requiresDecision' in result) throw httpError(500, 'Attack unexpectedly stopped in preparation');
+    return result;
+}
+
+interface PendingAttackPayload extends Record<string, unknown> {
+    attackInput: AttackActionInput;
+    preparedAttack: PreparedAttack['attack'];
+    defenseOptions: DefenseOption[];
+    atValue: number;
+    attackerName: string;
+    targetName: string;
+    maneuverName: string | null;
+    followUp?: AttackActionInput | null;
+}
+
+function publicPendingAction(action: typeof combatActions.$inferSelect) {
+    const payload = action.payload as PendingAttackPayload;
+    return {
+        id: action.id,
+        sessionId: action.session_id,
+        attackerId: action.actor_id,
+        targetId: action.target_id,
+        status: action.status,
+        attack: payload.preparedAttack,
+        atValue: payload.atValue,
+        attackerName: payload.attackerName,
+        targetName: payload.targetName,
+        maneuverName: payload.maneuverName,
+        defenseOptions: payload.defenseOptions,
+        expiresAt: action.expires_at,
+        version: action.version,
+    };
+}
+
+export type BeginAttackResult =
+    | { status: 'PENDING'; actionId: string; pending: ReturnType<typeof publicPendingAction>; result: null }
+    | { status: 'RESOLVED'; actionId: string; pending: null; result: AttackResultOut };
+
+/** Roll and validate once, then either persist defender choice or atomically finalize an unopposed result. */
+export async function beginAttackAction(
+    ctx: Ctx,
+    input: AttackActionInput,
+    internal: { consumeAction?: boolean } = {}
+): Promise<BeginAttackResult> {
+    const consumesAction = (input.attackKind ?? 'standard') === 'standard' && internal.consumeAction !== false;
+    const prepared = await executeAttackAction(ctx, {
+        ...input,
+        preparationOnly: true,
+        ignoreActionSpent: !consumesAction,
+    });
+    if (!('requiresDecision' in prepared)) throw httpError(500, 'Attack preparation returned a final result');
+    const expiresAt = new Date(Date.now() + 15 * 60_000);
+
+    return db.transaction(async tx => {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`${input.sessionId}:${input.attackerId}`}))`);
+        const [existing] = await tx
+            .select()
+            .from(combatActions)
+            .where(
+                and(
+                    eq(combatActions.session_id, input.sessionId),
+                    eq(combatActions.actor_id, input.attackerId),
+                    eq(combatActions.action_type, 'ATTACK'),
+                    inArray(combatActions.status, ['PENDING', 'RESOLVING'])
+                )
+            )
+            .limit(1);
+        if (existing) throw httpError(409, `Attack ${existing.id} is already awaiting resolution`);
+
+        if (consumesAction) {
+            const [spent] = await tx
+                .update(combatants)
+                .set({ action_spent: true, updated_at: new Date() })
+                .where(and(eq(combatants.id, input.attackerId), eq(combatants.action_spent, false)))
+                .returning({ id: combatants.id });
+            if (!spent) throw httpError(409, 'The active action was already spent');
+        }
+
+        const payload: PendingAttackPayload = {
+            attackInput: prepared.input,
+            preparedAttack: prepared.attack,
+            defenseOptions: prepared.defenseOptions,
+            atValue: prepared.atValue,
+            attackerName: prepared.attacker.name,
+            targetName: prepared.target.name,
+            maneuverName: prepared.maneuverName,
+        };
+        const [action] = await tx
+            .insert(combatActions)
+            .values({
+                session_id: input.sessionId,
+                actor_id: input.attackerId,
+                target_id: input.targetId,
+                action_kind: consumesAction ? 'ACTION' : 'SYSTEM_REACTION',
+                action_type: 'ATTACK',
+                status: prepared.requiresDecision ? 'PENDING' : 'RESOLVING',
+                payload,
+                expires_at: expiresAt,
+            })
+            .returning();
+
+        if (prepared.requiresDecision) {
+            const offered = prepared.defenseOptions
+                .filter(option => option.available)
+                .map(option => option.choice)
+                .join('/');
+            await appendLog(
+                tx,
+                input.sessionId,
+                `${prepared.attacker.name} attacks ${prepared.target.name} (${prepared.attack.roll}/${prepared.atValue}); waiting for defense (${offered}).`
+            );
+            return { status: 'PENDING', actionId: action.id, pending: publicPendingAction(action), result: null };
+        }
+
+        const result = await executeAttackAction(ctx, {
+            ...prepared.input,
+            preparedAttack: prepared.attack,
+            defenseChoice: 'DECLINE',
+            transaction: tx,
+        });
+        if ('requiresDecision' in result) throw httpError(500, 'Finalization returned a prepared attack');
+        await tx
+            .update(combatActions)
+            .set({
+                status: 'RESOLVED',
+                decision: 'DECLINE',
+                decision_by_discord_id: ctx.discordId,
+                result: result as unknown as Record<string, unknown>,
+                resolved_at: new Date(),
+                updated_at: new Date(),
+                version: action.version + 1,
+            })
+            .where(eq(combatActions.id, action.id));
+        return { status: 'RESOLVED', actionId: action.id, pending: null, result };
+    });
+}
+
+export async function getPendingAttack(ctx: Ctx, input: { sessionId: string; actionId?: string }) {
+    const conditions = [eq(combatActions.session_id, input.sessionId), eq(combatActions.action_type, 'ATTACK')];
+    if (input.actionId) conditions.push(eq(combatActions.id, input.actionId));
+    const [action] = await db
+        .select()
+        .from(combatActions)
+        .where(and(...conditions, inArray(combatActions.status, ['PENDING', 'RESOLVING'])))
+        .orderBy(desc(combatActions.created_at))
+        .limit(1);
+    if (!action) throw httpError(404, 'No pending attack found');
+    const { session, combatants: rows } = await loadSession(input.sessionId);
+    const target = rows.find(row => row.id === action.target_id);
+    const canView = session.dm_user_id === ctx.discordId || target?.discord_user_id === ctx.discordId;
+    if (!canView) throw httpError(403, 'Only the defender or combat DM may inspect this pending attack');
+    return publicPendingAction(action);
+}
+
+/** Claim one pending action and atomically persist its damage/effects/result. */
+export async function resolvePendingAttack(
+    ctx: Ctx,
+    input: { actionId: string; decision: DefenseChoice; force?: boolean; sessionId?: string }
+): Promise<{ alreadyResolved: boolean; result: AttackResultOut; nextAttack?: BeginAttackResult | null }> {
+    if (!['PARRY', 'DODGE', 'DECLINE'].includes(input.decision)) throw httpError(400, 'Invalid defense decision');
+    const [initial] = await db.select().from(combatActions).where(eq(combatActions.id, input.actionId)).limit(1);
+    if (!initial || initial.action_type !== 'ATTACK') throw httpError(404, 'Pending attack not found');
+    if (input.sessionId && initial.session_id !== input.sessionId)
+        throw httpError(400, 'Pending attack session mismatch');
+    const { session, combatants: rows } = await loadSession(initial.session_id);
+    const target = rows.find(row => row.id === initial.target_id);
+    const attacker = rows.find(row => row.id === initial.actor_id);
+    const isDm = session.dm_user_id === ctx.discordId;
+    const ownsTarget = target?.type === 'PLAYER' && target.discord_user_id === ctx.discordId;
+    if (!isDm && !ownsTarget) throw httpError(403, 'Only the defender or combat DM may choose this defense');
+    if (input.force && !isDm) throw httpError(403, 'Only the combat DM may force a pending resolution');
+    if (initial.status === 'RESOLVED' && initial.result) {
+        return { alreadyResolved: true, result: initial.result as unknown as AttackResultOut };
+    }
+    if (initial.status === 'CANCELLED') throw httpError(409, 'This attack was cancelled');
+    if (initial.expires_at && initial.expires_at < new Date() && !input.force) {
+        throw httpError(410, 'This defense prompt expired; the combat DM can force a resolution');
+    }
+
+    const staleClaim = new Date(Date.now() - 2 * 60_000);
+    if (!attacker) throw httpError(409, 'The attacking combatant no longer exists');
+    const resolutionCtx: Ctx = {
+        discordId:
+            attacker.type === 'PLAYER' && attacker.discord_user_id ? attacker.discord_user_id : session.dm_user_id,
+    };
+    const result = await db.transaction(async tx => {
+        const [claimed] = await tx
+            .update(combatActions)
+            .set({ status: 'RESOLVING', updated_at: new Date(), version: sql`${combatActions.version} + 1` })
+            .where(
+                and(
+                    eq(combatActions.id, input.actionId),
+                    or(
+                        eq(combatActions.status, 'PENDING'),
+                        and(eq(combatActions.status, 'RESOLVING'), lt(combatActions.updated_at, staleClaim))
+                    )
+                )
+            )
+            .returning();
+        if (!claimed) {
+            const [current] = await tx
+                .select({ status: combatActions.status, result: combatActions.result })
+                .from(combatActions)
+                .where(eq(combatActions.id, input.actionId));
+            if (current?.status === 'RESOLVED' && current.result) {
+                return { alreadyResolved: true, result: current.result as unknown as AttackResultOut };
+            }
+            throw httpError(409, 'This defense is already being resolved; retry shortly');
+        }
+        const payload = claimed.payload as PendingAttackPayload;
+        const finalized = await executeAttackAction(resolutionCtx, {
+            ...payload.attackInput,
+            preparedAttack: payload.preparedAttack,
+            defenseChoice: input.decision,
+            transaction: tx,
+        });
+        if ('requiresDecision' in finalized) throw httpError(500, 'Finalization returned a prepared attack');
+        await tx
+            .update(combatActions)
+            .set({
+                status: 'RESOLVED',
+                decision: input.decision,
+                decision_by_discord_id: ctx.discordId,
+                result: finalized as unknown as Record<string, unknown>,
+                resolved_at: new Date(),
+                updated_at: new Date(),
+                version: sql`${combatActions.version} + 1`,
+            })
+            .where(eq(combatActions.id, input.actionId));
+        return { alreadyResolved: false, result: finalized };
+    });
+    if (result.alreadyResolved) return result;
+    const payload = initial.payload as PendingAttackPayload;
+    const followUp = payload.followUp;
+    const sharedTargetDefeated = followUp?.targetId === result.result.target.id && result.result.targetHpAfter <= 0;
+    if (!followUp || result.result.attack.outcome === 'BOTCH' || sharedTargetDefeated) {
+        return { ...result, nextAttack: null };
+    }
+    const continuationCtx: Ctx = {
+        discordId:
+            attacker.type === 'PLAYER' && attacker.discord_user_id ? attacker.discord_user_id : session.dm_user_id,
+    };
+    const nextAttack = await beginAttackAction(continuationCtx, followUp, { consumeAction: false });
+    return { ...result, nextAttack };
+}
+
 export interface TwoWeaponAttackResult {
+    status: 'PENDING' | 'RESOLVED';
     penalty: number;
     offHandPenalty: number;
     attacks: AttackResultOut[];
+    pending: ReturnType<typeof publicPendingAction> | null;
     secondAttackSkipped: boolean;
     skipReason: string | null;
 }
 
-/** Resolve the paired attacks of Beidhändiger Kampf as one action. */
+/** Begin the paired attacks of Beidhändiger Kampf as one action with independent defender choices. */
 export async function resolveTwoWeaponAttackAction(
     ctx: Ctx,
     input: { sessionId: string; attackerId: string; targetIds: [string, string?] }
@@ -1279,40 +2012,70 @@ export async function resolveTwoWeaponAttackAction(
     const { mainHand: penalty, offHand: offHandPenalty } = getTwoWeaponPenalties(trainingPenalties);
     const secondTargetId = input.targetIds[1] ?? input.targetIds[0];
 
-    const first = await resolveAttackAction(ctx, {
+    const followUp: AttackActionInput = {
+        sessionId: input.sessionId,
+        attackerId: attacker.id,
+        targetId: secondTargetId,
+        weaponId: secondWeapon.id,
+        attackAtModifier: offHandPenalty,
+    };
+    const first = await beginAttackAction(ctx, {
         sessionId: input.sessionId,
         attackerId: attacker.id,
         targetId: input.targetIds[0],
         weaponId: equipment.weaponId,
         attackAtModifier: penalty,
     });
-    if (first.attack.outcome === 'BOTCH') {
+    if (first.status === 'PENDING') {
+        const [action] = await db.select().from(combatActions).where(eq(combatActions.id, first.actionId)).limit(1);
+        if (!action) throw httpError(500, 'Two-weapon pending action was not persisted');
+        await db
+            .update(combatActions)
+            .set({ payload: { ...(action.payload as PendingAttackPayload), followUp }, updated_at: new Date() })
+            .where(and(eq(combatActions.id, action.id), eq(combatActions.status, 'PENDING')));
         return {
+            status: 'PENDING',
             penalty,
             offHandPenalty,
-            attacks: [first],
+            attacks: [],
+            pending: first.pending,
+            secondAttackSkipped: false,
+            skipReason: null,
+        };
+    }
+    if (first.result.attack.outcome === 'BOTCH') {
+        return {
+            status: 'RESOLVED',
+            penalty,
+            offHandPenalty,
+            attacks: [first.result],
+            pending: null,
             secondAttackSkipped: true,
             skipReason: 'The first attack botched',
         };
     }
-    if (first.target.id === secondTargetId && first.targetHpAfter <= 0) {
+    if (first.result.target.id === secondTargetId && first.result.targetHpAfter <= 0) {
         return {
+            status: 'RESOLVED',
             penalty,
             offHandPenalty,
-            attacks: [first],
+            attacks: [first.result],
+            pending: null,
             secondAttackSkipped: true,
             skipReason: 'The shared target was defeated by the first attack',
         };
     }
 
-    const second = await resolveAttackAction(ctx, {
-        sessionId: input.sessionId,
-        attackerId: attacker.id,
-        targetId: secondTargetId,
-        weaponId: secondWeapon.id,
-        attackAtModifier: offHandPenalty,
-    });
-    return { penalty, offHandPenalty, attacks: [first, second], secondAttackSkipped: false, skipReason: null };
+    const second = await beginAttackAction(ctx, followUp, { consumeAction: false });
+    return {
+        status: second.status,
+        penalty,
+        offHandPenalty,
+        attacks: second.status === 'RESOLVED' ? [first.result, second.result] : [first.result],
+        pending: second.pending,
+        secondAttackSkipped: false,
+        skipReason: null,
+    };
 }
 
 interface LogInput {
@@ -1321,7 +2084,9 @@ interface LogInput {
     maneuverName: string | null;
     atValue: number;
     attack: { roll: number; confirmRoll: number | null; outcome: string };
-    defense: { roll: number; success: boolean } | null;
+    defense: AttackResultOut['defense'];
+    defenseChoice: DefenseChoice | null;
+    defenseOptions: DefenseOption[];
     hitConnected: boolean;
     botchDamage: number;
     rolledDamage: number;
@@ -1361,8 +2126,20 @@ function buildAttackLog(i: LogInput): string {
         m += ` -> **CRITICAL!** Cannot be parried!`;
     } else if (i.attack.outcome === 'NORMAL_HIT') {
         if (i.defense) {
-            m += ` | ${i.targetName} Parry: ${i.defense.roll}.`;
-            m += i.defense.success ? ` **Parried!**` : ` Parry Failed.`;
+            const label = i.defense.choice === 'DODGE' ? 'Dodge' : 'Parry';
+            m += ` | Offered: ${i.defenseOptions
+                .filter(option => option.available)
+                .map(option => option.choice)
+                .join('/')}. ${i.targetName} ${label}: ${i.defense.roll}/${i.defense.value}.`;
+            m += i.defense.success ? ` **Defended!**` : ` ${label} failed.`;
+        } else if (i.defenseChoice === 'DECLINE') {
+            m += ` | ${i.targetName} takes the hit without defending.`;
+        } else {
+            const unavailable = i.defenseOptions
+                .filter(option => option.choice !== 'DECLINE')
+                .map(option => `${option.choice}:${option.reasonCode}`)
+                .join(', ');
+            if (unavailable) m += ` | No defense (${unavailable}).`;
         }
     } else {
         m += ` -> **Miss!**`;

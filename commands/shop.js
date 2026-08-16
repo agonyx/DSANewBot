@@ -3,6 +3,7 @@ const { buyCatalogItem, listCatalog, sellOwnedAsset } = require('../services/eco
 const { formatCurrency } = require('../utils/economyUtils');
 const { createLogger } = require('../utils/logger');
 const { buildSectionEmbeds } = require('../utils/embedUtils');
+const { addVisibilityOption, deferWithVisibility } = require('../utils/interactionVisibility');
 const log = createLogger('shop');
 
 module.exports = {
@@ -10,23 +11,25 @@ module.exports = {
         .setName('shop')
         .setDescription('Browse, buy, or sell equipment')
         .addSubcommand(command =>
-            command
-                .setName('browse')
-                .setDescription('Browse the equipment catalog')
-                .addStringOption(option => option.setName('search').setDescription('Name search'))
-                .addStringOption(option =>
-                    option
-                        .setName('category')
-                        .setDescription('Catalog category')
-                        .addChoices(
-                            { name: 'Weapons', value: 'WEAPON' },
-                            { name: 'Shields', value: 'SHIELD' },
-                            { name: 'Armor', value: 'ARMOR' },
-                            { name: 'Clothing', value: 'CLOTHING' },
-                            { name: 'Gear', value: 'GEAR' },
-                            { name: 'Consumables', value: 'CONSUMABLE' }
-                        )
-                )
+            addVisibilityOption(
+                command
+                    .setName('browse')
+                    .setDescription('Browse the equipment catalog')
+                    .addStringOption(option => option.setName('search').setDescription('Name search'))
+                    .addStringOption(option =>
+                        option
+                            .setName('category')
+                            .setDescription('Catalog category')
+                            .addChoices(
+                                { name: 'Weapons', value: 'WEAPON' },
+                                { name: 'Shields', value: 'SHIELD' },
+                                { name: 'Armor', value: 'ARMOR' },
+                                { name: 'Clothing', value: 'CLOTHING' },
+                                { name: 'Gear', value: 'GEAR' },
+                                { name: 'Consumables', value: 'CONSUMABLE' }
+                            )
+                    )
+            )
         )
         .addSubcommand(command =>
             command
@@ -77,9 +80,10 @@ module.exports = {
     },
 
     async execute(interaction) {
-        await interaction.deferReply({ ephemeral: true });
         const ctx = { discordId: interaction.user.id };
         const subcommand = interaction.options.getSubcommand();
+        if (subcommand === 'browse') await deferWithVisibility(interaction);
+        else await interaction.deferReply({ ephemeral: true });
         try {
             if (subcommand === 'browse') {
                 const rows = await listCatalog(ctx, {
