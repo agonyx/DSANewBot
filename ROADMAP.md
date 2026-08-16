@@ -6,7 +6,8 @@ Implementation checkpoint (2026-08-16): every software item in this roadmap is
 implemented in the current worktree and passes the isolated full test gate. The
 remaining unchecked acceptance criterion in the companion UX backlog is the
 user's desktop/mobile screenshot approval for the Components V2 direction.
-Migrations and code from this checkpoint have not been applied to the live bot.
+The live Netcup database, 46 global production commands, and bot runtime were
+updated successfully on 2026-08-16 from Git revision `302536b`.
 
 ---
 
@@ -259,27 +260,27 @@ Priorities 1–3 and Development Sprints 1–5 are implemented and verified. Cle
 
 ## Database Tables Status
 
-| Table/group                                            | Status             | Usage                                                |
-| ------------------------------------------------------ | ------------------ | ---------------------------------------------------- |
-| `players`, `stats`                                     | ✅ Active          | Character records, attributes, resources, wounds/AP  |
-| `dice_macros`                                          | ✅ Active          | Per-character reusable dice expressions              |
-| `talents`, `player_talents`                            | ✅ Active          | Talent catalog and FW                                |
-| `spells`, `player_spells`, `supernatural_*`            | ✅ Active          | Magic profiles, learning, castings, and effects      |
-| `liturgies`, `player_liturgies`                        | ✅ Active          | Karma catalog and learned abilities                  |
-| `ap_transactions`                                      | ✅ Active          | Immutable AP audit ledger                            |
-| `action_modifications`, `player_action_modifications`  | ✅ Active          | Maneuvers, prerequisites, AP cost, and ownership     |
-| `special_abilities`, `player_special_abilities`        | ✅ Active          | Magical/karmic source catalog and learned abilities  |
-| `weapons`, `items`, `equipment_catalog`                | ✅ Active          | Weapons, armor, clothing, gear, slots, weight/value  |
-| `wallets`, `wallet_transactions`                       | ✅ Active          | Currency balance and immutable ledger                |
-| `trades`, `trade_items`, `loot_pools`, `loot_entries`  | ✅ Active          | Atomic trading and post-combat rewards               |
-| `mobs`, `combat_sessions`, `combatants`                | ✅ Active          | Templates and persistent combat state                |
-| `combat_actions`                                       | 🟡 Migration ready | Idempotent pending defenses and action journal       |
-| `combatant_conditions`, `combatant_statuses`           | ✅ Active          | Leveled and binary lifecycle effects                 |
-| `combatant_effects`, `wound_treatments`                | ✅ Active          | Buff/debuff state and treatment audit                |
-| `party_memberships`, `initiative_trackers`             | ✅ Active          | Guild party enrollment and scene initiative          |
-| `session_notes`, `campaign_records`, `campaign_worlds` | ✅ Active          | Notes, quests, encounters, maps, bases, world state  |
-| `character_records`                                    | ✅ Active          | Companions, backgrounds, standing, crafting, alchemy |
-| `webhook_subscriptions`                                | ✅ Active          | Signed outbound integrations and Dice So Nice events |
+| Table/group                                            | Status    | Usage                                                |
+| ------------------------------------------------------ | --------- | ---------------------------------------------------- |
+| `players`, `stats`                                     | ✅ Active | Character records, attributes, resources, wounds/AP  |
+| `dice_macros`                                          | ✅ Active | Per-character reusable dice expressions              |
+| `talents`, `player_talents`                            | ✅ Active | Talent catalog and FW                                |
+| `spells`, `player_spells`, `supernatural_*`            | ✅ Active | Magic profiles, learning, castings, and effects      |
+| `liturgies`, `player_liturgies`                        | ✅ Active | Karma catalog and learned abilities                  |
+| `ap_transactions`                                      | ✅ Active | Immutable AP audit ledger                            |
+| `action_modifications`, `player_action_modifications`  | ✅ Active | Maneuvers, prerequisites, AP cost, and ownership     |
+| `special_abilities`, `player_special_abilities`        | ✅ Active | Magical/karmic source catalog and learned abilities  |
+| `weapons`, `items`, `equipment_catalog`                | ✅ Active | Weapons, armor, clothing, gear, slots, weight/value  |
+| `wallets`, `wallet_transactions`                       | ✅ Active | Currency balance and immutable ledger                |
+| `trades`, `trade_items`, `loot_pools`, `loot_entries`  | ✅ Active | Atomic trading and post-combat rewards               |
+| `mobs`, `combat_sessions`, `combatants`                | ✅ Active | Templates and persistent combat state                |
+| `combat_actions`                                       | ✅ Active | Idempotent pending defenses and action journal       |
+| `combatant_conditions`, `combatant_statuses`           | ✅ Active | Leveled and binary lifecycle effects                 |
+| `combatant_effects`, `wound_treatments`                | ✅ Active | Buff/debuff state and treatment audit                |
+| `party_memberships`, `initiative_trackers`             | ✅ Active | Guild party enrollment and scene initiative          |
+| `session_notes`, `campaign_records`, `campaign_worlds` | ✅ Active | Notes, quests, encounters, maps, bases, world state  |
+| `character_records`                                    | ✅ Active | Companions, backgrounds, standing, crafting, alchemy |
+| `webhook_subscriptions`                                | ✅ Active | Signed outbound integrations and Dice So Nice events |
 
 ---
 

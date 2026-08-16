@@ -491,7 +491,14 @@ local-Docker blocker without touching the production database or container.
   followed by validation of 89 command modules as 46 production and 49 development
   commands. TypeScript, Git whitespace, and scoped Prettier checks pass; lint has
   zero errors and 10 existing warnings.
-- No production database migration, bot deployment, command publication, commit,
-  or push was performed for this checkpoint. The disposable database, test-runner
-  containers, and remote code copy were removed after verification; production
-  `dsa-db` remained healthy and `dsa-discord-bot` remained running.
+- Production deployment completed on 2026-08-16 from revision `302536b`. A
+  restricted 80,858,490-byte custom-format database backup was validated before
+  applying additive migrations `0014` and `0015`; all existing character and
+  combat-session rows were preserved. Discord accepted all 46 global production
+  commands after a required-before-optional ordering regression was fixed and
+  added to command validation.
+- `dsa-discord-bot` now runs the read-only release
+  `/root/releases/dsa-bot-20260816T195209Z-302536b`, logged in as
+  `Singularity#0898`, loaded 7,196 rule titles, reports zero restarts, and returns
+  HTTP 200 for both `/health` and `/ready`. The previous release remains available
+  for code rollback, and the pre-deployment database backup remains on the server.
