@@ -1,114 +1,60 @@
-const { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder } = require('discord.js');
-const { supabase } = require('../utils/supabaseClient');
+const { SlashCommandBuilder, AttachmentBuilder } = require('discord.js');
+const { listWeapons } = require('../services/inventory');
+const { getSelectedPlayer } = require('../services/characters');
+const { readAvatar } = require('../utils/avatarStorage');
 const { createLogger } = require('../utils/logger');
+const { createEmbed } = require('../utils/embedUtils');
+const { buildWeaponEmbeds } = require('../utils/embedViews');
+const { addVisibilityOption, deferWithVisibility } = require('../utils/interactionVisibility');
 const log = createLogger('show-weapons');
 
 module.exports = {
-    data: new SlashCommandBuilder()
-        .setName('show-weapons')
-        .setDescription('Displays the weapons of your selected character.')
-        .addBooleanOption(option =>
-            option.setName('visible').setDescription('Make the response visible to everyone in the channel.')
-        ),
+    data: addVisibilityOption(
+        new SlashCommandBuilder()
+            .setName('show-weapons')
+            .setDescription('Displays the weapons of your selected character.')
+    ),
     async execute(interaction) {
+        await deferWithVisibility(interaction);
+
         try {
-            const discordId = interaction.user.id;
-            const visible = interaction.options.getBoolean('visible', false);
+            const player = await getSelectedPlayer({ discordId: interaction.user.id });
+            const weaponsList = await listWeapons({ discordId: interaction.user.id });
 
-            const { data: player, error } = await supabase
-                .from('players')
-                .select(
-                    `
-                    id,
-                    name,
-                    avatar,
-                    weapons:weapons(*)
-                `
-                )
-                .eq('discord_id', discordId)
-                .eq('selected', 'YES')
-                .single();
-
-            if (error || !player) {
-                return interaction.reply({
-                    content:
-                        'You have not selected a player yet. Use the /choose-character command to select a player.',
-                    ephemeral: true,
+            if (!weaponsList || weaponsList.length === 0) {
+                return interaction.editReply({
+                    embeds: [
+                        createEmbed('combat')
+                            .setTitle(`🗡️ ${player.name} — Weapons`)
+                            .setDescription('No weapons yet. Use `/weapon add` or `/shop buy` to add one.'),
+                    ],
                 });
             }
 
-            const weapons = player.weapons;
-
-            if (!weapons || weapons.length === 0) {
-                return interaction.reply({
-                    content: 'Your selected player does not have any weapons.',
-                    ephemeral: true,
-                });
-            }
-
-            const weaponEmbed = new EmbedBuilder()
-                .setColor(0x0099ff)
-                .setTitle(`**${player.name} - Weapons**`)
-                .setDescription('Here are the weapons your character currently has:\n\u200B')
-                .setFooter({
-                    text: `Requested by ${interaction.user.username}`,
-                    iconURL: interaction.user.avatarURL(),
-                });
-
-            const meleeWeapons = weapons.filter(weapon => weapon.type === 'MELEE');
-            const rangedWeapons = weapons.filter(weapon => weapon.type === 'RANGED');
-
-            let meleeColumn = '';
-            let rangedColumn = '';
-
-            if (meleeWeapons.length > 0) {
-                meleeColumn += '**Melee Weapons**\n\n';
-                meleeWeapons.forEach(weapon => {
-                    meleeColumn += `**${weapon.name}**\nType: ${weapon.type.charAt(0).toUpperCase() + weapon.type.slice(1)}\nDamage: ${weapon.tp}\nAT: ${weapon.at}\nPA: ${weapon.pa}\nEquipped: ${weapon.is_equipped === 'Y' ? 'Yes' : 'No'}\nSlot: ${weapon.equipped_slot || 'N/A'}\n\u200B\n`;
-                });
-            }
-
-            if (rangedWeapons.length > 0) {
-                rangedColumn += '**Ranged Weapons**\n\n';
-                rangedWeapons.forEach(weapon => {
-                    rangedColumn += `**${weapon.name}**\nType: ${weapon.type.charAt(0).toUpperCase() + weapon.type.slice(1)}\nDamage: ${weapon.tp}\nAT: ${weapon.at}\nPA: ${weapon.pa}\nEquipped: ${weapon.is_equipped === 'Y' ? 'Yes' : 'No'}\nSlot: ${weapon.equipped_slot || 'N/A'}\n\u200B\n`;
-                });
-            }
-
-            const fields = [];
-            if (meleeColumn) {
-                fields.push({ name: '\u200B', value: meleeColumn, inline: true });
-            }
-            if (rangedColumn) {
-                fields.push({ name: '\u200B', value: rangedColumn, inline: true });
-            }
-
-            if (fields.length > 0) {
-                weaponEmbed.addFields(fields);
-            }
+            const embeds = buildWeaponEmbeds(player, weaponsList, interaction.user);
 
             if (player.avatar) {
                 try {
-                    const { data: avatarData, error: avatarError } = await supabase.storage
-                        .from('avatars')
-                        .download(player.avatar);
-
-                    if (!avatarError && avatarData) {
-                        const attachment = new AttachmentBuilder(Buffer.from(await avatarData.arrayBuffer()), {
-                            name: 'avatar.png',
-                        });
-                        weaponEmbed.setThumbnail('attachment://avatar.png');
-                        return interaction.reply({ embeds: [weaponEmbed], files: [attachment], ephemeral: !visible });
+                    const avatarBuffer = await readAvatar(player.avatar);
+                    if (avatarBuffer) {
+                        const attachment = new AttachmentBuilder(avatarBuffer, { name: 'avatar.png' });
+                        embeds[0].setThumbnail('attachment://avatar.png');
+                        return interaction.editReply({ embeds, files: [attachment] });
                     }
-                } catch (e) {
+                } catch {
                     // Avatar fetch failed, continue without it
                 }
             }
 
-            return interaction.reply({ embeds: [weaponEmbed], ephemeral: !visible });
+            return interaction.editReply({ embeds });
         } catch (error) {
+            if (error.status === 404) {
+                return interaction.editReply({
+                    content: 'You have not selected a character yet. Use `/character select` first.',
+                });
+            }
             log.error({ error }, 'Error showing weapons');
-            return interaction.reply({ content: 'There was an error while fetching your weapons.', ephemeral: true });
+            return interaction.editReply({ content: 'There was an error while fetching your weapons.' });
         }
     },
 };

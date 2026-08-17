@@ -1,0 +1,1 @@
+ALTER TABLE "stats" ADD COLUMN "stabilization_failures" integer DEFAULT 0 NOT NULL;

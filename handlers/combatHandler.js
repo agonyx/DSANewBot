@@ -65,6 +65,16 @@ async function handleCombatButton(interaction) {
             log.error({ customId }, 'Invalid cas_ button ID format');
             await interaction.reply({ content: 'Error: Invalid skill button data.', ephemeral: true }).catch(() => {});
         }
+    } else if (customId.startsWith('cad_')) {
+        const parts = customId.split('_');
+        if (parts.length === 3 && ['PARRY', 'DODGE', 'DECLINE'].includes(parts[2])) {
+            await turnHandler.handlePendingDefenseInteraction(interaction, parts[1], parts[2]);
+        } else {
+            log.error({ customId }, 'Invalid cad_ defense button ID format');
+            await interaction
+                .reply({ content: 'Error: Invalid defense button data.', ephemeral: true })
+                .catch(() => {});
+        }
     } else if (customId.startsWith('cet_')) {
         // Combat End Turn (Player)
         const parts = customId.split('_');
@@ -135,12 +145,30 @@ async function handleCombatSelectMenu(interaction) {
     const customId = interaction.customId;
     log.debug({ customId, userId: interaction.user.id }, 'Routing select menu');
 
-    if (!interaction.client.pendingCombatActions) {
-        interaction.client.pendingCombatActions = new Map();
+    if (customId.startsWith('cact_')) {
+        const parts = customId.split('_');
+        await turnHandler.handleCombatActionMenuSelect(interaction, parts[1], parts[2]);
+    } else if (customId.startsWith('cabil_')) {
+        const parts = customId.split('_');
+        await turnHandler.handleCombatAbilitySelect(interaction, parts[1], parts[2], parts[3]);
+    } else if (customId.startsWith('cabt_')) {
+        const parts = customId.split('_');
+        await turnHandler.handleCombatAbilityTarget(interaction, parts[1], parts[2], parts[3], parts[4]);
+    } else if (customId.startsWith('ctw_')) {
+        const parts = customId.split('_');
+        await turnHandler.handleTwoWeaponTargetSelect(interaction, parts[1], parts[2]);
+    } else if (customId.startsWith('cop_')) {
+        const parts = customId.split('_');
+        await turnHandler.handleOpportunityTargetSelect(interaction, parts[1], parts[2]);
+    } else if (customId.startsWith('cretopp_')) {
+        const parts = customId.split('_');
+        await turnHandler.handleRetrieveOpponentSelect(interaction, parts[1], parts[2], parts[3]);
+    } else if (customId.startsWith('cret_')) {
+        const parts = customId.split('_');
+        await turnHandler.handleRetrieveWeaponSelect(interaction, parts[1], parts[2]);
     }
-
     // Target selection for player attacks/skills
-    if (customId.startsWith('ctsa_')) {
+    else if (customId.startsWith('ctsa_')) {
         const parts = customId.split('_');
         const sessionId = parts[1];
         const actorIdFromCustomId = parts[2];
@@ -158,6 +186,16 @@ async function handleCombatSelectMenu(interaction) {
         const sessionId = parts[1];
         const actorId = parts[2];
         await turnHandler.handleCombatSkillManeuverSelect(interaction, sessionId, actorId);
+    }
+    // NPC maneuver selection
+    else if (customId.startsWith('npc_skill_pick_')) {
+        const parts = customId.split('_');
+        await npcHandler.handleDmNpcSkillSelect(interaction, parts[3], parts[4]);
+    }
+    // NPC maneuver target selection
+    else if (customId.startsWith('npc_skill_target_')) {
+        const parts = customId.split('_');
+        await npcHandler.handleDmNpcSkillTargetSelect(interaction, parts[3], parts[4]);
     }
     // NPC target selection
     else if (customId.startsWith('cts_npc_')) {
@@ -196,6 +234,9 @@ async function handleCombatModalSubmit(interaction) {
     if (customId.startsWith('add_mob_submit_')) {
         const sessionId = customId.substring('add_mob_submit_'.length);
         await setupHandler.handleAddMobSubmitInteraction(interaction, sessionId);
+    } else if (customId.startsWith('cmodal_')) {
+        const parts = customId.split('_');
+        await turnHandler.handleCombatActionModal(interaction, parts[1], parts[2], parts[3]);
     } else {
         log.warn({ customId }, 'Unknown modal submit prefix');
     }

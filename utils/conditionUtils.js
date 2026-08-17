@@ -7,10 +7,8 @@
  * @module conditionUtils
  * @see DSA 5e Grundregelwerk, Chapter "Zustände & Status"
  *
- * FUTURE: Tick automation will hook into CONDITION_RECOVERY_RATES and
- * the duration_type/duration_remaining fields on combatant_conditions
- * to auto-decrement or auto-remove conditions each combat round or
- * rest period.
+ * Round-based expiry and rest recovery are orchestrated by
+ * services/combatEffects.ts and services/resources.ts.
  */
 
 const { createLogger } = require('./logger');
@@ -58,7 +56,9 @@ const STATUS_TYPES = Object.freeze({
     UEBERRASCHT: 'ueberrascht',
     UNSICHTBAR: 'unsichtbar',
     VERGIFTET: 'vergiftet',
+    KRANK: 'krank',
     FIXIERT: 'fixiert',
+    EINGEENGT: 'eingeengt',
     BEWEGUNGSUNFAEHIG: 'bewegungsunfaehig',
 });
 
@@ -93,7 +93,9 @@ const STATUS_LABELS = Object.freeze({
     [STATUS_TYPES.UEBERRASCHT]: 'Überrascht',
     [STATUS_TYPES.UNSICHTBAR]: 'Unsichtbar',
     [STATUS_TYPES.VERGIFTET]: 'Vergiftet',
+    [STATUS_TYPES.KRANK]: 'Krank',
     [STATUS_TYPES.FIXIERT]: 'Fixiert',
+    [STATUS_TYPES.EINGEENGT]: 'Eingeengt',
     [STATUS_TYPES.BEWEGUNGSUNFAEHIG]: 'Bewegungsunfähig',
 });
 
@@ -153,22 +155,20 @@ const STATUS_EMOJIS = Object.freeze({
     [STATUS_TYPES.UEBERRASCHT]: '❗',
     [STATUS_TYPES.UNSICHTBAR]: '👻',
     [STATUS_TYPES.VERGIFTET]: '☠️',
+    [STATUS_TYPES.KRANK]: '🤒',
     [STATUS_TYPES.FIXIERT]: '📌',
+    [STATUS_TYPES.EINGEENGT]: '🪢',
     [STATUS_TYPES.BEWEGUNGSUNFAEHIG]: '⛓️',
 });
 
 // ---------------------------------------------------------------------------
-// Recovery Rates (for future tick automation)
+// Recovery-rate reference metadata
 // ---------------------------------------------------------------------------
 
 /**
  * Natural recovery rate per condition type.
- * Used by future tick-automation system to auto-decrement conditions
- * at the end of rest periods or combat rounds.
- *
- * FUTURE: A tick handler will iterate active combatant_conditions,
- * check duration_type ('rounds', 'minutes', 'hours', 'rest') and
- * duration_remaining, then decrement or remove accordingly.
+ * Display/reference data for the condition commands. Combat rounds and
+ * regeneration phases apply the supported lifecycle hooks in the services.
  *
  * @type {Record<string, string>}
  */

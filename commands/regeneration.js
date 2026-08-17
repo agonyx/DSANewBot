@@ -1,8 +1,8 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { supabase } = require('../utils/supabaseClient');
+const { SlashCommandBuilder } = require('discord.js');
+const { regenerate } = require('../services/resources');
 const { createLogger } = require('../utils/logger');
+const { createEmbed, makeFooter, progressBar } = require('../utils/embedUtils');
 const log = createLogger('regeneration');
-const { rollRegeneration } = require('../utils/regenUtils');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -16,86 +16,38 @@ module.exports = {
         await interaction.deferReply({ ephemeral: true });
 
         const targetUser = interaction.options.getUser('target');
-        const targetDiscordId = targetUser ? targetUser.id : interaction.user.id;
-        const isSelf = targetDiscordId === interaction.user.id;
+        const isSelf = !targetUser || targetUser.id === interaction.user.id;
+        const ctx = { discordId: interaction.user.id };
 
         try {
-            const { data: player, error } = await supabase
-                .from('players')
-                .select(
-                    `
-                    id,
-                    name,
-                    stats:stats(id, le_current, le_max, asp_current, asp_max, kap_current, kap_max)
-                `
-                )
-                .eq('discord_id', targetDiscordId)
-                .eq('selected', 'YES')
-                .single();
+            const {
+                characterName,
+                alreadyFull,
+                results,
+                woundsBefore,
+                woundsHealed,
+                woundsAfter,
+                painSuppressionExpired,
+                recoveredConditions,
+                regenerationPenalty,
+            } = await regenerate(ctx, {
+                targetDiscordId: targetUser?.id,
+            });
 
-            if (error || !player?.stats) {
+            if (alreadyFull) {
                 return interaction.editReply({
-                    content: isSelf
-                        ? '❌ No character selected! Use `/choose-character` first.'
-                        : '❌ Target has no selected character.',
+                    content: `ℹ️ **${characterName}** is already fully rested! All resources are at maximum.`,
                 });
             }
 
-            const stats = Array.isArray(player.stats) ? player.stats[0] : player.stats;
-
-            // Check if already at full resources
-            const isFullHp = stats.le_current >= stats.le_max;
-            const isFullAsp = stats.asp_max === 0 || stats.asp_current >= stats.asp_max;
-            const isFullKap = stats.kap_max === 0 || stats.kap_current >= stats.kap_max;
-
-            if (isFullHp && isFullAsp && isFullKap) {
-                return interaction.editReply({
-                    content: `ℹ️ **${player.name}** is already fully rested! All resources are at maximum.`,
-                });
-            }
-
-            // Roll regeneration
-            const { results } = rollRegeneration(stats);
-
-            // Build DB update object from results (only changed values)
-            const updateObj = {};
-            for (const r of results) {
-                if (r.newValue !== r.oldValue) {
-                    switch (r.type) {
-                        case 'lep':
-                            updateObj.le_current = r.newValue;
-                            break;
-                        case 'asp':
-                            updateObj.asp_current = r.newValue;
-                            break;
-                        case 'kap':
-                            updateObj.kap_current = r.newValue;
-                            break;
-                    }
-                }
-            }
-
-            // Update DB if anything changed
-            if (Object.keys(updateObj).length > 0) {
-                const { error: updateError } = await supabase.from('stats').update(updateObj).eq('id', stats.id);
-
-                if (updateError) throw updateError;
-            }
-
-            // Build embed
-            const embed = new EmbedBuilder()
-                .setColor(0x2ecc71)
-                .setTitle(`🌙 Regenerationsphase — ${player.name}`)
-                .setDescription(`After a period of rest, **${player.name}** recovers energy.`)
-                .setFooter({
-                    text: `Regeneration by ${interaction.user.username}`,
-                    iconURL: interaction.user.avatarURL(),
-                })
+            const embed = createEmbed('success')
+                .setTitle(`🌙 Regenerationsphase — ${characterName}`)
+                .setDescription(`After a period of rest, **${characterName}** recovers energy.`)
+                .setFooter(makeFooter(interaction.user, 'Regeneration by'))
                 .setTimestamp();
 
             for (const r of results) {
-                const filledBlocks = Math.round((r.newValue / r.maxValue) * 10);
-                const resourceBar = '■'.repeat(filledBlocks) + '□'.repeat(10 - filledBlocks);
+                const resourceBar = progressBar(r.newValue, r.maxValue);
                 const modifierDisplay =
                     r.modifier !== 0 ? ` (${r.modifier >= 0 ? '+' : ''}${r.modifier} = ${r.effective})` : '';
 
@@ -105,12 +57,36 @@ module.exports = {
                 });
             }
 
+            if (woundsHealed > 0) {
+                embed.addFields({
+                    name: '🩸 Natural wound healing',
+                    value: `${woundsBefore} → **${woundsAfter}** wound(s)`,
+                });
+            }
+            if (painSuppressionExpired) {
+                embed.addFields({ name: '⚡ Pain treatment', value: 'Temporary pain suppression has ended.' });
+            }
+            if (recoveredConditions.length > 0) {
+                embed.addFields({ name: '✅ Rest recovery', value: recoveredConditions.join(', ') });
+            }
+            if (regenerationPenalty < 0) {
+                embed.addFields({
+                    name: '🥱 Exhaustion',
+                    value: `${regenerationPenalty} to LeP, AsP, and KaP regeneration rolls.`,
+                });
+            }
+
             return interaction.editReply({ embeds: [embed] });
         } catch (error) {
+            if (error.status === 404) {
+                return interaction.editReply({
+                    content: isSelf
+                        ? '❌ No character selected! Use `/character select` first.'
+                        : '❌ Target has no selected character.',
+                });
+            }
             log.error({ error }, 'Regeneration command error');
-            return interaction.editReply({
-                content: `❌ An error occurred: ${error.message}`,
-            });
+            return interaction.editReply({ content: `❌ An error occurred: ${error.message}` });
         }
     },
 };

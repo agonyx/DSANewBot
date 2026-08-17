@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { supabase } = require('../utils/supabaseClient');
+const { db } = require('../db');
+const { mobs } = require('../db/schema');
 
 const testMobs = [
     {
@@ -54,18 +55,19 @@ module.exports = {
 
         for (const mob of testMobs) {
             try {
-                const { error } = await supabase.from('mobs').insert(mob);
+                // mobs.name is UNIQUE — onConflictDoNothing + returning tells us if it inserted.
+                const inserted = await db
+                    .insert(mobs)
+                    .values(mob)
+                    .onConflictDoNothing({ target: mobs.name })
+                    .returning({ id: mobs.id });
 
-                if (error) {
-                    if (error.code === '23505') {
-                        results.push(`❌ Failed to create **${mob.name}** (Mob with this name already exists).`);
-                    } else {
-                        results.push(`❌ Failed to create **${mob.name}** (${error.message}).`);
-                    }
-                    failCount++;
-                } else {
+                if (inserted.length) {
                     results.push(`✅ Successfully created **${mob.name}**.`);
                     successCount++;
+                } else {
+                    results.push(`❌ Failed to create **${mob.name}** (Mob with this name already exists).`);
+                    failCount++;
                 }
             } catch (error) {
                 results.push(`❌ Failed to create **${mob.name}** (${error.message}).`);

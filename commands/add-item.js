@@ -1,6 +1,8 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { supabase } = require('../utils/supabaseClient');
+const { SlashCommandBuilder } = require('discord.js');
+const { addItem } = require('../services/inventory');
+const { getSelectedPlayer } = require('../services/characters');
 const { createLogger } = require('../utils/logger');
+const { createEmbed } = require('../utils/embedUtils');
 const log = createLogger('add-item');
 
 const ITEM_TYPES = [
@@ -9,6 +11,9 @@ const ITEM_TYPES = [
     { name: '📜 Scroll', value: 'SCROLL' },
     { name: '⚔️ Weapon', value: 'WEAPON' },
     { name: '🛡️ Armor', value: 'ARMOR' },
+    { name: '👕 Clothing', value: 'CLOTHING' },
+    { name: '🎒 Gear', value: 'GEAR' },
+    { name: '🧪 Consumable', value: 'CONSUMABLE' },
     { name: '💎 Valuable', value: 'VALUABLE' },
     { name: '📦 Misc', value: 'MISC' },
 ];
@@ -28,7 +33,7 @@ module.exports = {
         .addStringOption(option =>
             option
                 .setName('effect')
-                .setDescription('Effect when used (e.g., "Heal 1w6+2", "Restore 5 MP")')
+                .setDescription('Effect when used (e.g., "Heal 1w6+2 LeP", "Restore 5 AsP")')
                 .setRequired(false)
         )
         .addStringOption(option =>
@@ -36,24 +41,35 @@ module.exports = {
         )
         .addIntegerOption(option =>
             option.setName('quantity').setDescription('Quantity (default: 1)').setRequired(false).setMinValue(1)
+        )
+        .addIntegerOption(option =>
+            option.setName('price_kreuzer').setDescription('Unit value in Kreuzer').setMinValue(0)
+        )
+        .addIntegerOption(option =>
+            option.setName('weight_grams').setDescription('Unit weight in grams').setMinValue(0)
+        )
+        .addStringOption(option =>
+            option
+                .setName('slot')
+                .setDescription('Default equipment slot')
+                .addChoices(
+                    ...['HEAD', 'BODY', 'ARMS', 'HANDS', 'LEGS', 'FEET', 'BACK', 'WAIST', 'NECK', 'ACCESSORY'].map(
+                        slot => ({ name: slot, value: slot })
+                    )
+                )
+        )
+        .addIntegerOption(option =>
+            option.setName('armor_rs').setDescription('Armor protection while equipped').setMinValue(0)
+        )
+        .addIntegerOption(option =>
+            option.setName('armor_be').setDescription('Armor Belastung while equipped').setMinValue(0).setMaxValue(4)
         ),
 
     async execute(interaction) {
         await interaction.deferReply({ ephemeral: true });
 
         try {
-            const { data: player, error: playerError } = await supabase
-                .from('players')
-                .select('id, name')
-                .eq('discord_id', interaction.user.id)
-                .eq('selected', 'YES')
-                .single();
-
-            if (playerError || !player) {
-                return interaction.editReply({
-                    content: 'No selected character! Use /choose-character first',
-                });
-            }
+            const player = await getSelectedPlayer({ discordId: interaction.user.id });
 
             const name = interaction.options.getString('name');
             const type = interaction.options.getString('type') || 'MISC';
@@ -61,64 +77,50 @@ module.exports = {
             const description = interaction.options.getString('description');
             const quantity = interaction.options.getInteger('quantity') || 1;
 
-            // Check for existing item with same name and type (stacking)
-            const { data: existingItem, error: searchError } = await supabase
-                .from('items')
-                .select('*')
-                .eq('player_id', player.id)
-                .eq('name', name)
-                .eq('type', type)
-                .single();
+            // addItem stacks onto an existing same-name+type item, else creates one.
+            const item = await addItem(
+                { discordId: interaction.user.id },
+                {
+                    name,
+                    type,
+                    effect,
+                    description,
+                    quantity,
+                    priceKreuzer: interaction.options.getInteger('price_kreuzer') || 0,
+                    weightGrams: interaction.options.getInteger('weight_grams') || 0,
+                    defaultSlot: interaction.options.getString('slot'),
+                    armorRs: interaction.options.getInteger('armor_rs') || 0,
+                    armorBe: interaction.options.getInteger('armor_be') || 0,
+                }
+            );
 
-            if (existingItem && !searchError) {
-                // Stack: increment quantity
-                const newQuantity = (existingItem.quantity || 1) + quantity;
+            const stacked = item.quantity > quantity;
 
-                const { data: updatedItem, error: updateError } = await supabase
-                    .from('items')
-                    .update({ quantity: newQuantity })
-                    .eq('id', existingItem.id)
-                    .select()
-                    .single();
-
-                if (updateError) throw updateError;
-
-                const embed = new EmbedBuilder()
-                    .setColor(0x57f287)
-                    .setTitle('📦 Items Stacked')
-                    .setDescription(`Added **${quantity}** to existing **${name}** in **${player.name}**'s inventory`)
-                    .addFields(
-                        { name: 'Name', value: updatedItem.name, inline: true },
-                        { name: 'Type', value: updatedItem.type, inline: true },
-                        { name: 'New Quantity', value: newQuantity.toString(), inline: true }
-                    );
-
-                return interaction.editReply({ embeds: [embed] });
-            }
-
-            // Create new item
-            const itemData = {
-                name,
-                type,
-                effect,
-                description,
-                quantity,
-                player_id: player.id,
-            };
-
-            const { data: item, error: itemError } = await supabase.from('items').insert(itemData).select().single();
-
-            if (itemError) throw itemError;
-
-            const embed = new EmbedBuilder()
-                .setColor(0x57f287)
-                .setTitle('📦 Item Added')
-                .setDescription(`Added item to **${player.name}**'s inventory`)
+            const embed = createEmbed('success')
+                .setTitle(stacked ? '📦 Items Stacked' : '📦 Item Added')
+                .setDescription(
+                    stacked
+                        ? `Added **${quantity}** to existing **${name}** in **${player.name}**'s inventory`
+                        : `Added item to **${player.name}**'s inventory`
+                )
                 .addFields(
                     { name: 'Name', value: item.name, inline: true },
                     { name: 'Type', value: item.type, inline: true },
-                    { name: 'Quantity', value: item.quantity.toString(), inline: true }
+                    {
+                        name: stacked ? 'New Quantity' : 'Quantity',
+                        value: item.quantity.toString(),
+                        inline: true,
+                    }
                 );
+            embed.addFields(
+                { name: 'Weight', value: `${item.weight_grams} g`, inline: true },
+                { name: 'Value', value: `${item.price_kreuzer} K`, inline: true },
+                {
+                    name: 'Equipment',
+                    value: item.default_slot ? `${item.default_slot} · RS ${item.armor_rs} · BE ${item.armor_be}` : '—',
+                    inline: true,
+                }
+            );
 
             if (item.effect) {
                 embed.addFields({ name: 'Effect', value: item.effect, inline: false });
@@ -130,9 +132,8 @@ module.exports = {
             return interaction.editReply({ embeds: [embed] });
         } catch (error) {
             log.error({ error }, 'Add item error');
-            return interaction.editReply({
-                content: `❌ Failed to add item: ${error.message}`,
-            });
+            const message = error.data?.error || error.message || 'Failed to add item.';
+            return interaction.editReply({ content: `❌ ${message}` });
         }
     },
 };

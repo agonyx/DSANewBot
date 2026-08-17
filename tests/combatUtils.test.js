@@ -1,13 +1,7 @@
-const {
-    rollDice,
-    parseAndRollDamage,
-    resolveAttack,
-    resolveDefense,
-    applySoak,
-} = require('../utils/combatUtils');
+const { rollDice, parseAndRollDamage, resolveAttack, resolveDefense, applySoak } = require('../utils/combatUtils');
 
 // Mock Math.random to make dice rolls deterministic
-const mockRandom = (value) => {
+const mockRandom = value => {
     jest.spyOn(Math, 'random').mockReturnValue(value);
 };
 
@@ -265,7 +259,7 @@ describe('resolveDefense', () => {
         expect(result.success).toBe(true);
     });
 
-    test('PA of 0 always fails (except crit handling not implemented)', () => {
+    test('PA of 0 always fails under binary defense resolution', () => {
         mockRandom(0); // roll = 1
         const result = resolveDefense(0);
         expect(result.success).toBe(false);
@@ -422,7 +416,7 @@ describe('resolveAttack - Extended Edge Cases', () => {
         let callCount = 0;
         jest.spyOn(Math, 'random').mockImplementation(() => {
             callCount++;
-            if (callCount === 1) return (18 / 20) - 0.001; // roll = 18
+            if (callCount === 1) return 18 / 20 - 0.001; // roll = 18
             return 0;
         });
 
@@ -646,7 +640,7 @@ describe('Integration: Complex Combat Scenarios', () => {
 
         const attack = resolveAttack(15);
         expect(attack.outcome).toBe('CRITICAL_SUCCESS');
-        // In real implementation, crits would skip defense
+        // The combat service consumes this outcome by skipping defense.
     });
 
     test('Botch could hurt attacker', () => {
@@ -659,7 +653,7 @@ describe('Integration: Complex Combat Scenarios', () => {
 
         const attack = resolveAttack(10);
         expect(attack.outcome).toBe('BOTCH');
-        // In real implementation, botch would have additional effects
+        // The combat service consumes this outcome by applying self-damage.
     });
 
     test('High damage vs no armor', () => {

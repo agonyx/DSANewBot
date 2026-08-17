@@ -16,6 +16,15 @@
         "noEmit": true,
         "types": ["node"]
     },
-    "include": ["index.js", "*.ts", "db/**/*.ts", "utils/**/*.ts", "scripts/**/*.ts", "server.ts"],
+    "include": [
+        "index.js",
+        "*.ts",
+        "db/**/*.ts",
+        "services/**/*.ts",
+        "api/**/*.ts",
+        "utils/**/*.ts",
+        "scripts/**/*.ts",
+        "server.ts"
+    ],
     "exclude": ["node_modules", "DSA5WikiScraper", "tests"]
 }

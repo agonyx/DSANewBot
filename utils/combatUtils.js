@@ -111,7 +111,8 @@ function resolveAttack(attackerAT) {
 /**
  * Resolves a DSA 5 defense roll (Parry/Dodge).
  * Determines if the defense roll succeeds against the target's PA value.
- * Note: Does not currently handle critical defense successes or botches.
+ * Defense intentionally uses the roadmap's binary d20-vs-PA rule; optional
+ * critical-defense and botch tables are outside the committed scope.
  * @param {number} targetPA - The defender's relevant Parry/Dodge Value.
  * @returns {{ roll: number, success: boolean }} Result object indicating the roll and if it succeeded.
  */

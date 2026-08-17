@@ -10,11 +10,15 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { pool } from './db';
+import { createApiApp } from './api';
 import { createLogger } from './utils/logger';
 
 const log = createLogger('server');
 
 const app = new Hono();
+
+// API (Discord OAuth2-protected) — services shared with the in-process bot commands.
+app.route('/api', createApiApp());
 
 app.get('/health', (c) => c.json({ status: 'ok' }));
 

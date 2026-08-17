@@ -1,7 +1,10 @@
-const { SlashCommandBuilder, StringSelectMenuBuilder, ActionRowBuilder, EmbedBuilder } = require('discord.js');
-const { supabase } = require('../utils/supabaseClient');
+const { SlashCommandBuilder, StringSelectMenuBuilder, ActionRowBuilder } = require('discord.js');
+const { db } = require('../db');
+const { eq, and } = require('drizzle-orm');
+const { players, items, stats: statsTable } = require('../db/schema');
 const { rollDice } = require('../utils/rollUtil');
 const { createLogger } = require('../utils/logger');
+const { createEmbed, progressBar, truncateText } = require('../utils/embedUtils');
 const log = createLogger('use-item');
 
 const CONSUMABLE_TYPES = ['POTION', 'FOOD', 'SCROLL'];
@@ -13,26 +16,32 @@ module.exports = {
         await interaction.deferReply({ ephemeral: true });
 
         try {
-            const { data: player, error } = await supabase
-                .from('players')
-                .select(
-                    `
-                    id,
-                    name,
-                    avatar,
-                    stats:stats(id, le_max, le_current),
-                    items:items(*)
-                `
-                )
-                .eq('discord_id', interaction.user.id)
-                .eq('selected', 'YES')
-                .single();
+            const [playerRow] = await db
+                .select({ id: players.id, name: players.name, avatar: players.avatar })
+                .from(players)
+                .where(and(eq(players.discord_id, interaction.user.id), eq(players.selected, 'YES')))
+                .limit(1);
 
-            if (error || !player) {
+            if (!playerRow) {
                 return interaction.editReply({
-                    content: 'No selected character! Use /choose-character first',
+                    content: 'No selected character! Use `/character select` first.',
                 });
             }
+
+            // Separate queries for the stats + items relations (Drizzle can't nest like PostgREST).
+            const [statsRow] = await db
+                .select({
+                    id: statsTable.id,
+                    le_max: statsTable.le_max,
+                    le_current: statsTable.le_current,
+                })
+                .from(statsTable)
+                .where(eq(statsTable.player_id, playerRow.id))
+                .limit(1);
+
+            const playerItems = await db.select().from(items).where(eq(items.player_id, playerRow.id));
+
+            const player = { ...playerRow, stats: statsRow, items: playerItems };
 
             const stats = Array.isArray(player.stats) ? player.stats[0] : player.stats;
 
@@ -109,7 +118,7 @@ module.exports = {
                         healingDone = newHP - stats.le_current;
 
                         if (healingDone > 0) {
-                            await supabase.from('stats').update({ le_current: newHP }).eq('id', stats.id);
+                            await db.update(statsTable).set({ le_current: newHP }).where(eq(statsTable.id, stats.id));
 
                             stats.le_current = newHP;
                         }
@@ -130,24 +139,21 @@ module.exports = {
 
                     // Consume item
                     if (item.quantity && item.quantity > 1) {
-                        await supabase
-                            .from('items')
-                            .update({ quantity: item.quantity - 1 })
-                            .eq('id', itemId);
+                        await db
+                            .update(items)
+                            .set({ quantity: item.quantity - 1 })
+                            .where(eq(items.id, parseInt(itemId)));
                     } else {
-                        await supabase.from('items').delete().eq('id', itemId);
+                        await db.delete(items).where(eq(items.id, parseInt(itemId)));
                     }
 
-                    const embed = new EmbedBuilder()
-                        .setColor(0x57f287)
+                    const embed = createEmbed('success')
                         .setTitle('🧪 Item Used')
                         .setDescription(`**${player.name}** used **${item.name}**`)
-                        .addFields({ name: 'Effect', value: effectResult });
+                        .addFields({ name: 'Effect', value: truncateText(effectResult, 1024) });
 
                     if (healingDone > 0) {
-                        const healthBar =
-                            '■'.repeat(Math.round((stats.le_current / stats.le_max) * 10)) +
-                            '□'.repeat(10 - Math.round((stats.le_current / stats.le_max) * 10));
+                        const healthBar = progressBar(stats.le_current, stats.le_max);
                         embed.addFields({
                             name: 'Current HP',
                             value: `${healthBar} ${stats.le_current}/${stats.le_max}`,

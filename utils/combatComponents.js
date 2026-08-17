@@ -1,7 +1,7 @@
 const { ButtonBuilder } = require('@discordjs/builders');
 const { ActionRowBuilder } = require('@discordjs/builders');
-const { EmbedBuilder } = require('@discordjs/builders');
 const { ButtonStyle } = require('discord.js');
+const { createEmbed } = require('./embedUtils');
 
 // --- Helper function to build the Setup Embed ---
 function createSetupEmbed(sessionId, dmUsername, participants = [], canStart = false) {
@@ -28,8 +28,7 @@ function createSetupEmbed(sessionId, dmUsername, participants = [], canStart = f
         ? 'DM: Press "Start Fight" to begin combat.'
         : 'Players: Use "Join Combat" to enter the lobby.\nDM: Use "Add Mob" to add hostiles.';
 
-    const embed = new EmbedBuilder()
-        .setColor(canStart ? 0x2f9e44 : 0xd97706) // Green when ready, Amber when not
+    const embed = createEmbed(canStart ? 'success' : 'warning')
         .setTitle('Combat Lobby')
         .setDescription(`*Organized by ${dmUsername}*\n${readinessDescription}`)
         .addFields(

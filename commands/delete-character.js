@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const { supabase } = require('../utils/supabaseClient');
+const { listCharacters, deleteCharacter } = require('../services/characters');
 const { createLogger } = require('../utils/logger');
 const log = createLogger('delete-character');
 
@@ -14,19 +14,14 @@ module.exports = {
         const discordId = interaction.user.id;
 
         try {
-            const { data: players, error } = await supabase
-                .from('players')
-                .select('id, name, selected')
-                .eq('discord_id', discordId);
+            const playerRows = await listCharacters({ discordId });
 
-            if (error) throw error;
-
-            if (!players || players.length === 0) {
+            if (!playerRows || playerRows.length === 0) {
                 return interaction.editReply('❌ You do not have any characters to delete.');
             }
 
-            if (players.length === 1) {
-                const player = players[0];
+            if (playerRows.length === 1) {
+                const player = playerRows[0];
 
                 const confirmButton = new ButtonBuilder()
                     .setCustomId(`delete_confirm_${player.id}`)
@@ -55,16 +50,21 @@ module.exports = {
                         await i.update({ content: '❌ Deletion cancelled.', components: [] });
                         collector.stop();
                     } else if (i.customId.startsWith('delete_confirm_')) {
-                        const playerId = i.customId.replace('delete_confirm_', '');
+                        const playerId = Number(i.customId.replace('delete_confirm_', ''));
 
-                        const { error: deleteError } = await supabase.from('players').delete().eq('id', playerId);
-
-                        if (deleteError) throw deleteError;
-
-                        await i.update({
-                            content: `✅ Character **${player.name}** has been permanently deleted.`,
-                            components: [],
-                        });
+                        try {
+                            await deleteCharacter({ discordId }, playerId);
+                            await i.update({
+                                content: `✅ Character **${player.name}** has been permanently deleted.`,
+                                components: [],
+                            });
+                        } catch (error) {
+                            log.error({ error }, 'Delete character confirm error');
+                            await i.update({
+                                content: `❌ ${error.data?.error || error.message}`,
+                                components: [],
+                            });
+                        }
                         collector.stop();
                     }
                 });
@@ -86,7 +86,7 @@ module.exports = {
                     .setCustomId('delete_character_select')
                     .setPlaceholder('Select a character to delete')
                     .addOptions(
-                        players.map(p => ({
+                        playerRows.map(p => ({
                             label: p.name + (p.selected === 'YES' ? ' (Selected)' : ''),
                             value: p.id,
                         }))
@@ -107,7 +107,7 @@ module.exports = {
                 collector.on('collect', async i => {
                     if (i.customId === 'delete_character_select') {
                         const playerId = i.values[0];
-                        const player = players.find(p => p.id === playerId);
+                        const player = playerRows.find(p => p.id === playerId);
 
                         const confirmButton = new ButtonBuilder()
                             .setCustomId(`delete_confirm_${playerId}`)
@@ -129,17 +129,22 @@ module.exports = {
                         await i.update({ content: '❌ Deletion cancelled.', components: [] });
                         collector.stop();
                     } else if (i.customId.startsWith('delete_confirm_')) {
-                        const playerId = i.customId.replace('delete_confirm_', '');
-                        const player = players.find(p => p.id === playerId);
+                        const playerId = Number(i.customId.replace('delete_confirm_', ''));
+                        const player = playerRows.find(p => p.id === playerId);
 
-                        const { error: deleteError } = await supabase.from('players').delete().eq('id', playerId);
-
-                        if (deleteError) throw deleteError;
-
-                        await i.update({
-                            content: `✅ Character **${player.name}** has been permanently deleted.`,
-                            components: [],
-                        });
+                        try {
+                            await deleteCharacter({ discordId }, playerId);
+                            await i.update({
+                                content: `✅ Character **${player.name}** has been permanently deleted.`,
+                                components: [],
+                            });
+                        } catch (error) {
+                            log.error({ error }, 'Delete character confirm error');
+                            await i.update({
+                                content: `❌ ${error.data?.error || error.message}`,
+                                components: [],
+                            });
+                        }
                         collector.stop();
                     }
                 });

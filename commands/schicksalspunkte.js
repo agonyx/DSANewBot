@@ -1,17 +1,16 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { createLogger } = require('../utils/logger');
+const { getResource, spendResource, restoreResource, setResource, RESOURCE_TYPES } = require('../services/resources');
 const {
-    RESOURCE_TYPES,
-    getPlayerWithStats,
-    spendResource,
-    restoreResource,
-    setResource,
-    createResourceEmbed,
-} = require('../utils/resourceUtils');
+    buildNoticeComponentPayload,
+    buildResourceComponentPayload,
+    deferForComponents,
+    editDeferredComponents,
+} = require('../utils/componentViews');
 const log = createLogger('schicksalspunkte');
 
-const RESOURCE = RESOURCE_TYPES.SCHICKSALSPUNKTE;
-const STATS_SELECT = 'id, schicksalspunkte_current, schicksalspunkte_max';
+const TYPE = 'schicksalspunkte';
+const META = RESOURCE_TYPES.schicksalspunkte;
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -57,111 +56,90 @@ module.exports = {
         ),
 
     async execute(interaction) {
-        await interaction.deferReply({ ephemeral: true });
+        await deferForComponents(interaction, { ephemeral: true });
 
         const subcommand = interaction.options.getSubcommand();
         const targetUser = interaction.options.getUser('target');
-        const targetId = targetUser?.id || interaction.user.id;
-        const isSelf = targetId === interaction.user.id;
+        const targetDiscordId = targetUser?.id;
+        const isSelf = !targetUser || targetUser.id === interaction.user.id;
+        const ctx = { discordId: interaction.user.id };
 
         try {
-            const result = await getPlayerWithStats(targetId, STATS_SELECT);
-
-            if (!result) {
-                return interaction.editReply({
-                    content: isSelf
-                        ? '❌ No character selected! Use `/choose-character` first.'
-                        : '❌ Target has no selected character.',
-                });
-            }
-
-            const { player, stats } = result;
-            const current = stats.schicksalspunkte_current;
-            const max = stats.schicksalspunkte_max;
-
             if (subcommand === 'show') {
-                const embed = createResourceEmbed(player.name, RESOURCE, current, current, max, 'show')
-                    .setFooter({
-                        text: `Requested by ${interaction.user.username}`,
-                        iconURL: interaction.user.avatarURL(),
-                    })
-                    .setTimestamp();
-
-                return interaction.editReply({ embeds: [embed] });
+                const { characterName, current, max } = await getResource(ctx, { type: TYPE, targetDiscordId });
+                return editDeferredComponents(
+                    interaction,
+                    buildResourceComponentPayload(characterName, META, current, current, max, 'show')
+                );
             }
 
             if (subcommand === 'spend') {
                 const amount = interaction.options.getInteger('amount') || 1;
-                const { newValue, error } = await spendResource(stats.id, RESOURCE, amount, current);
-
-                if (error) {
-                    return interaction.editReply({
-                        content: `❌ Not enough Schicksalspunkte! (Current: ${current}/${max})`,
-                    });
-                }
-
-                const embed = createResourceEmbed(player.name, RESOURCE, current, newValue, max, 'spend')
-                    .setFooter({
-                        text: `Used by ${interaction.user.username}`,
-                        iconURL: interaction.user.avatarURL(),
-                    })
-                    .setTimestamp();
-
-                return interaction.editReply({ embeds: [embed] });
+                const { characterName, oldValue, newValue, max } = await spendResource(ctx, {
+                    type: TYPE,
+                    amount,
+                    targetDiscordId,
+                });
+                return editDeferredComponents(
+                    interaction,
+                    buildResourceComponentPayload(characterName, META, oldValue, newValue, max, 'spend')
+                );
             }
 
             if (subcommand === 'restore') {
                 const amount = interaction.options.getInteger('amount') || 1;
-                const { newValue, actualAmount, error } = await restoreResource(
-                    stats.id,
-                    RESOURCE,
+                const { characterName, oldValue, newValue, actualAmount, max } = await restoreResource(ctx, {
+                    type: TYPE,
                     amount,
-                    current,
-                    max
-                );
-
-                if (error) {
-                    return interaction.editReply({ content: `❌ ${error}` });
-                }
-
+                    targetDiscordId,
+                });
                 if (actualAmount === 0) {
-                    return interaction.editReply({
-                        content: `ℹ️ Already at maximum Schicksalspunkte (${current}/${max})`,
-                    });
+                    return editDeferredComponents(
+                        interaction,
+                        buildNoticeComponentPayload(`ℹ️ Already at maximum Schicksalspunkte (${oldValue}/${max})`)
+                    );
                 }
-
-                const embed = createResourceEmbed(player.name, RESOURCE, current, newValue, max, 'restore')
-                    .setFooter({
-                        text: `Restored by ${interaction.user.username}`,
-                        iconURL: interaction.user.avatarURL(),
-                    })
-                    .setTimestamp();
-
-                return interaction.editReply({ embeds: [embed] });
+                return editDeferredComponents(
+                    interaction,
+                    buildResourceComponentPayload(characterName, META, oldValue, newValue, max, 'restore')
+                );
             }
 
             if (subcommand === 'set') {
                 const value = interaction.options.getInteger('value');
-                const { newValue, error } = await setResource(stats.id, RESOURCE, value, max);
-
-                if (error) {
-                    return interaction.editReply({ content: `❌ ${error}` });
-                }
-
-                const embed = createResourceEmbed(player.name, RESOURCE, current, newValue, max, 'set')
-                    .setFooter({
-                        text: `Set by ${interaction.user.username}`,
-                        iconURL: interaction.user.avatarURL(),
-                    })
-                    .setTimestamp();
-
-                return interaction.editReply({ embeds: [embed] });
+                const { characterName, oldValue, newValue, max } = await setResource(ctx, {
+                    type: TYPE,
+                    value,
+                    targetDiscordId,
+                });
+                return editDeferredComponents(
+                    interaction,
+                    buildResourceComponentPayload(characterName, META, oldValue, newValue, max, 'set')
+                );
             }
         } catch (error) {
+            if (error.status === 404) {
+                return editDeferredComponents(
+                    interaction,
+                    buildNoticeComponentPayload(
+                        isSelf
+                            ? '❌ No character selected! Use `/character select` first.'
+                            : '❌ Target has no selected character.',
+                        { theme: 'error' }
+                    )
+                );
+            }
+            if (error.status === 400) {
+                return editDeferredComponents(
+                    interaction,
+                    buildNoticeComponentPayload(`❌ ${error.data?.error || error.message}`, { theme: 'error' })
+                );
+            }
             log.error({ error }, 'Schicksalspunkte command error');
-            return interaction.editReply({
-                content: `❌ An error occurred: ${error.message}`,
-            });
+            return editDeferredComponents(
+                interaction,
+                buildNoticeComponentPayload(`❌ An error occurred: ${error.message}`, { theme: 'error' })
+            );
         }
     },
 };

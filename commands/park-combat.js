@@ -1,5 +1,7 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { supabase } = require('../utils/supabaseClient');
+const { db } = require('../db');
+const { eq, and, inArray } = require('drizzle-orm');
+const { combatSessions, combatants } = require('../db/schema');
 const { updateCombatDisplay } = require('../handlers/combatHandler');
 const { createLogger } = require('../utils/logger');
 const log = createLogger('park-combat');
@@ -20,16 +22,22 @@ module.exports = {
             if (interaction.client.activeCombats?.has(channelId)) {
                 sessionData = interaction.client.activeCombats.get(channelId);
             } else {
-                const { data, error } = await supabase
-                    .from('combat_sessions')
-                    .select('*, combatants(*)')
-                    .eq('channel_id', channelId)
-                    .in('state', ['SETUP', 'RUNNING', 'PAUSED'])
-                    .single();
+                const [data] = await db
+                    .select()
+                    .from(combatSessions)
+                    .where(
+                        and(
+                            eq(combatSessions.channel_id, channelId),
+                            inArray(combatSessions.state, ['SETUP', 'RUNNING', 'PAUSED'])
+                        )
+                    )
+                    .limit(1);
 
-                if (error || !data) {
+                if (!data) {
                     return interaction.editReply('❌ There is no active combat session in this channel to park.');
                 }
+
+                const combatantsRows = await db.select().from(combatants).where(eq(combatants.session_id, data.id));
 
                 sessionData = {
                     ...data,
@@ -40,19 +48,18 @@ module.exports = {
                     turnOrder: data.turn_order,
                     currentTurnIndex: data.current_turn_index,
                     currentRound: data.current_round,
-                    combatants:
-                        data.combatants?.map(c => ({
-                            ...c,
-                            maxHP: c.max_hp,
-                            currentHP: c.current_hp,
-                            initiativeRoll: c.initiative_roll,
-                            initiativeBase: c.initiative_base,
-                            playerId: c.player_id,
-                            discordUserId: c.discord_user_id,
-                            mobDefinitionId: c.mob_definition_id,
-                            sessionId: c.session_id,
-                            isActiveTurn: c.is_active_turn,
-                        })) || [],
+                    combatants: combatantsRows.map(c => ({
+                        ...c,
+                        maxHP: c.max_hp,
+                        currentHP: c.current_hp,
+                        initiativeRoll: c.initiative_roll,
+                        initiativeBase: c.initiative_base,
+                        playerId: c.player_id,
+                        discordUserId: c.discord_user_id,
+                        mobDefinitionId: c.mob_definition_id,
+                        sessionId: c.session_id,
+                        isActiveTurn: c.is_active_turn,
+                    })),
                 };
                 sessionData.currentRound = sessionData.currentRound || 1;
 
@@ -76,15 +83,13 @@ module.exports = {
                 );
             }
 
-            const { error } = await supabase.from('combat_sessions').update({ state: 'PAUSED' }).eq('id', sessionId);
-
-            if (error) throw error;
+            await db.update(combatSessions).set({ state: 'PAUSED' }).where(eq(combatSessions.id, sessionId));
 
             sessionData.state = 'PAUSED';
 
             await updateCombatDisplay(interaction.client, channelId);
 
-            await interaction.editReply('✅ Combat has been paused. Use `/resume-combat` to continue.');
+            await interaction.editReply('✅ Combat has been paused. Use `/combat resume` to continue.');
         } catch (error) {
             log.error({ error }, 'Error parking combat');
             await interaction.editReply(`❌ An error occurred: ${error.message || 'Failed to park combat.'}`);

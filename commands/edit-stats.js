@@ -1,6 +1,5 @@
 const {
     SlashCommandBuilder,
-    EmbedBuilder,
     ActionRowBuilder,
     StringSelectMenuBuilder,
     ModalBuilder,
@@ -9,8 +8,9 @@ const {
     ButtonBuilder,
     ButtonStyle,
 } = require('discord.js');
-const { supabase } = require('../utils/supabaseClient');
+const { getCharacterSheet, updateStat } = require('../services/characters');
 const { createLogger } = require('../utils/logger');
+const { createEmbed } = require('../utils/embedUtils');
 const log = createLogger('edit-stats');
 
 const STAT_CONFIG = [
@@ -24,8 +24,10 @@ const STAT_CONFIG = [
     { key: 'kk', label: 'KK' },
     { key: 'le_max', label: 'Max LP' },
     { key: 'le_current', label: 'Current LP' },
+    { key: 'wounds', label: 'Wounds' },
+    { key: 'wound_threshold_modifier', label: 'Wound Threshold Modifier' },
     { key: 'initiative', label: 'Initiative' },
-    { key: 'ruestungsschutz', label: 'Armor (RS)' },
+    { key: 'ruestungsschutz', label: 'Natural + Equipped RS' },
     { key: 'ausweichen', label: 'Ausweichen' },
     { key: 'schicksalspunkte_current', label: 'SchP (Current)' },
     { key: 'schicksalspunkte_max', label: 'SchP (Max)' },
@@ -43,26 +45,11 @@ module.exports = {
         try {
             await interaction.deferReply({ ephemeral: true });
 
-            const { data: player, error } = await supabase
-                .from('players')
-                .select(
-                    `
-                    id,
-                    name,
-                    avatar,
-                    stats:stats(*)
-                `
-                )
-                .eq('discord_id', interaction.user.id)
-                .eq('selected', 'YES')
-                .single();
+            const { stats } = await getCharacterSheet({ discordId: interaction.user.id });
 
-            if (error || !player?.stats) {
+            if (!stats) {
                 return interaction.editReply('❌ No character stats found! Select a character first.');
             }
-
-            const stats = Array.isArray(player.stats) ? player.stats[0] : player.stats;
-            const currentPlayer = player;
 
             const createStatSelect = statsData =>
                 new StringSelectMenuBuilder()
@@ -77,8 +64,7 @@ module.exports = {
                     );
 
             const createStatsEmbed = statsData =>
-                new EmbedBuilder()
-                    .setColor(0x2f3136)
+                createEmbed('character')
                     .setTitle('🔧 Character Stat Editor')
                     .setDescription('**Select a stat from the dropdown below to modify it**')
                     .addFields(
@@ -177,14 +163,9 @@ module.exports = {
                         return;
                     }
 
-                    const { error: updateError } = await supabase
-                        .from('stats')
-                        .update({ [statKey]: parsedValue })
-                        .eq('player_id', currentPlayer.id);
-
-                    if (updateError) throw updateError;
-
-                    stats[statKey] = parsedValue;
+                    await updateStat({ discordId: interaction.user.id }, { statKey, value: parsedValue });
+                    const refreshed = await getCharacterSheet({ discordId: interaction.user.id });
+                    Object.assign(stats, refreshed.stats);
 
                     await interaction.editReply({
                         embeds: [createStatsEmbed(stats)],
@@ -207,7 +188,7 @@ module.exports = {
                 } catch (error) {
                     log.error({ error }, 'Modal error');
                     const errorMsg = await modalInteraction.reply({
-                        content: '❌ Failed to update stat!',
+                        content: `❌ ${error.data?.error || error.message || 'Failed to update stat!'}`,
                         ephemeral: true,
                     });
                     setTimeout(() => errorMsg.delete(), 3000);

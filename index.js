@@ -4,6 +4,8 @@ const { Client, Events, GatewayIntentBits, Collection, Partials } = require('dis
 const fs = require('node:fs');
 const path = require('node:path');
 const { createLogger } = require('./utils/logger');
+const { shouldRegisterCommand } = require('./utils/commandRegistration');
+const { selectCharacter, listCharacters } = require('./services/characters');
 const log = createLogger('index');
 
 const client = new Client({
@@ -14,7 +16,6 @@ const client = new Client({
 // Command handling
 client.commands = new Collection();
 client.activeCombats = new Map();
-client.pendingCombatActions = new Map();
 client.rulePageTitleCache = [];
 
 const commandsPath = path.join(__dirname, 'commands');
@@ -24,16 +25,16 @@ for (const file of commandFiles) {
     const filePath = path.join(commandsPath, file);
     const command = require(filePath);
 
-    if ('data' in command && 'execute' in command) {
+    if ('data' in command && 'execute' in command && shouldRegisterCommand(command.data.name)) {
         client.commands.set(command.data.name, command);
-    } else {
+    } else if (!('data' in command) || !('execute' in command)) {
         log.warn({ file: filePath }, 'Command missing required "data" or "execute" property');
     }
 }
 
 // Event handling
 const eventsPath = path.join(__dirname, 'events');
-const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith('.js'));
+const eventFiles = fs.existsSync(eventsPath) ? fs.readdirSync(eventsPath).filter(file => file.endsWith('.js')) : [];
 
 for (const file of eventFiles) {
     const filePath = path.join(eventsPath, file);
@@ -47,9 +48,12 @@ for (const file of eventFiles) {
 }
 
 const combatHandler = require('./handlers/combatHandler'); // Assuming CommonJS
-const { supabase, callEdgeFunction } = require('./utils/supabaseClient');
+const { db, callEdgeFunction } = require('./db');
+const { eq, inArray } = require('drizzle-orm');
+const { combatSessions, combatants, players } = require('./db/schema');
 const { sessionToMemory } = require('./utils/transforms');
 const { getRulePageTitles } = require('./utils/rulesClient');
+const { loadEffectsForCombatants } = require('./services/combatEffects');
 
 const RULE_PAGE_CACHE_REFRESH_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -74,20 +78,34 @@ async function refreshRulePageTitleCache(client) {
 async function recoverActiveCombats(client) {
     log.info('Starting active combat session recovery...');
     try {
-        // Fetch sessions that are RUNNING or PAUSED with their combatants
-        const { data: sessions, error } = await supabase
-            .from('combat_sessions')
-            .select('*, combatants(*)')
-            .in('state', ['RUNNING', 'PAUSED']);
+        // Fetch sessions that are RUNNING or PAUSED, then their combatants (2 queries).
+        const sessions = await db
+            .select()
+            .from(combatSessions)
+            .where(inArray(combatSessions.state, ['RUNNING', 'PAUSED']));
 
-        if (error) {
-            log.error({ error }, 'Database error during session recovery');
+        if (!sessions.length) {
+            log.info('No active or paused sessions found to recover');
             return;
         }
 
-        if (!sessions || sessions.length === 0) {
-            log.info('No active or paused sessions found to recover');
-            return;
+        const allCombatants = await db
+            .select()
+            .from(combatants)
+            .where(
+                inArray(
+                    combatants.session_id,
+                    sessions.map(s => s.id)
+                )
+            );
+        const effectState = await loadEffectsForCombatants(allCombatants.map(combatant => combatant.id));
+        const combatantsBySession = new Map();
+        for (const c of allCombatants) {
+            c.conditions = effectState.get(c.id)?.conditions || [];
+            c.statuses = effectState.get(c.id)?.statuses || [];
+            c.effects = effectState.get(c.id)?.effects || [];
+            if (!combatantsBySession.has(c.session_id)) combatantsBySession.set(c.session_id, []);
+            combatantsBySession.get(c.session_id).push(c);
         }
 
         log.info({ count: sessions.length }, 'Found sessions to recover');
@@ -97,6 +115,9 @@ async function recoverActiveCombats(client) {
                 log.warn({ session }, 'Skipping session with missing channel_id or id');
                 continue;
             }
+
+            // Attach combatants (snake_case) so sessionToMemory can map them.
+            session.combatants = combatantsBySession.get(session.id) || [];
 
             // Convert snake_case to camelCase for in-memory compatibility
             const memorySession = sessionToMemory(session);
@@ -145,21 +166,13 @@ client.on(Events.InteractionCreate, async interaction => {
         const discordId = interaction.user.id;
 
         try {
-            const { data: player, error: fetchError } = await supabase
-                .from('players')
-                .select('name')
-                .eq('id', selectedPlayerId)
-                .single();
+            await selectCharacter({ discordId }, Number(selectedPlayerId));
 
-            if (fetchError) throw fetchError;
-
-            await callEdgeFunction('set-selected-player', {
-                playerId: parseInt(selectedPlayerId),
-                discordId: discordId,
-            });
+            const characters = await listCharacters({ discordId });
+            const selected = characters.find(c => c.id === Number(selectedPlayerId));
 
             await interaction.update({
-                content: `You have selected the character: ${player.name}.`,
+                content: `You have selected the character: ${selected?.name ?? 'Unknown'}.`,
                 components: [],
             });
         } catch (error) {
@@ -205,6 +218,18 @@ client.on(Events.InteractionCreate, async interaction => {
         // Combined check for components/modals
         const customId = interaction.customId;
 
+        if (interaction.isButton() && customId.startsWith('charimp_')) {
+            try {
+                await require('./commands/import-character').handleImportButton(interaction);
+            } catch (error) {
+                log.error({ error }, 'Character import confirmation failed');
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({ content: 'Character import confirmation failed.', ephemeral: true });
+                }
+            }
+            return;
+        }
+
         // --- Check for Combat Prefixes ---
         if (
             customId.startsWith('combat_') ||
@@ -214,12 +239,22 @@ client.on(Events.InteractionCreate, async interaction => {
             customId.startsWith('cancel_combat_') ||
             customId.startsWith('caa_') ||
             customId.startsWith('cad_') ||
+            customId.startsWith('cact_') ||
+            customId.startsWith('cabil_') ||
+            customId.startsWith('cabt_') ||
+            customId.startsWith('ctw_') ||
+            customId.startsWith('cop_') ||
+            customId.startsWith('cret_') ||
+            customId.startsWith('cretopp_') ||
+            customId.startsWith('cmodal_') ||
             customId.startsWith('cas_') ||
             customId.startsWith('cet_') ||
             customId.startsWith('csm_') || // Combat Skill Maneuver
             customId.startsWith('dmnpc_action') ||
             customId.startsWith('ctsa_') ||
             customId.startsWith('cts_npc_') ||
+            customId.startsWith('npc_skill_pick_') ||
+            customId.startsWith('npc_skill_target_') ||
             customId.startsWith('leave_setup_') ||
             customId.startsWith('manage_participants_') ||
             customId.startsWith('remove_participant_select_') ||

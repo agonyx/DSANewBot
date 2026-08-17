@@ -1,36 +1,32 @@
-const { SlashCommandBuilder, EmbedBuilder, Interaction } = require('discord.js');
-const { supabase } = require('../utils/supabaseClient');
+const { SlashCommandBuilder } = require('discord.js');
+const { getMob, listMobs } = require('../services/mobs');
 const { createLogger } = require('../utils/logger');
+const { createEmbed, truncateText } = require('../utils/embedUtils');
+const { addVisibilityOption, deferWithVisibility } = require('../utils/interactionVisibility');
 const log = createLogger('show-mob');
 
 module.exports = {
-    data: new SlashCommandBuilder()
-        .setName('show-mob')
-        .setDescription('Display the details of a specific mob template.')
-        .addStringOption(option =>
-            option
-                .setName('name')
-                .setDescription('The exact name of the mob template to show.')
-                .setRequired(true)
-                .setMaxLength(100)
-                .setAutocomplete(true)
-        )
-        .setDMPermission(false),
+    data: addVisibilityOption(
+        new SlashCommandBuilder()
+            .setName('show-mob')
+            .setDescription('Display the details of a specific mob template.')
+            .addStringOption(option =>
+                option
+                    .setName('name')
+                    .setDescription('The exact name of the mob template to show.')
+                    .setRequired(true)
+                    .setMaxLength(100)
+                    .setAutocomplete(true)
+            )
+            .setDMPermission(false)
+    ),
 
     async autocomplete(interaction) {
         const focusedValue = interaction.options.getFocused();
-
         try {
-            const { data: mobs } = await supabase
-                .from('mobs')
-                .select('name')
-                .order('name');
-
-            const choices = (mobs || []).map(m => ({ name: m.name, value: m.name }));
-            const filtered = choices.filter(c =>
-                c.name.toLowerCase().includes(focusedValue.toLowerCase())
-            );
-
+            const mobRows = await listMobs({ discordId: interaction.user.id });
+            const choices = (mobRows || []).map(m => ({ name: m.name, value: m.name }));
+            const filtered = choices.filter(c => c.name.toLowerCase().includes(focusedValue.toLowerCase()));
             await interaction.respond(filtered.slice(0, 25));
         } catch (error) {
             log.error({ error }, 'Autocomplete error');
@@ -39,26 +35,16 @@ module.exports = {
     },
 
     async execute(interaction) {
-        await interaction.deferReply({ ephemeral: true });
-
+        await deferWithVisibility(interaction);
         const mobName = interaction.options.getString('name');
 
         try {
-            const { data: mob, error } = await supabase.from('mobs').select('*').eq('name', mobName).single();
+            const mob = await getMob({ discordId: interaction.user.id }, mobName);
 
-            if (error || !mob) {
-                return interaction.editReply({
-                    content: `❌ Mob template named **${mobName}** not found. Check the spelling or use \`/list-mobs\`.`,
-                });
-            }
-
-            const mobEmbed = new EmbedBuilder()
-                .setColor(0x8b4513)
-                .setTitle(`👾 Mob Details: ${mob.name} 👾`)
-                .setTimestamp();
+            const mobEmbed = createEmbed('combat').setTitle(`👾 ${mob.name}`).setTimestamp();
 
             if (mob.description) {
-                mobEmbed.setDescription(`*${mob.description}*`);
+                mobEmbed.setDescription(`*${truncateText(mob.description, 4000)}*`);
             }
 
             mobEmbed.addFields(
@@ -72,6 +58,11 @@ module.exports = {
 
             await interaction.editReply({ embeds: [mobEmbed] });
         } catch (error) {
+            if (error.status === 404) {
+                return interaction.editReply({
+                    content: `❌ Mob template named **${mobName}** not found. Check the spelling or use \`/mob list\`.`,
+                });
+            }
             log.error({ error, mobName }, 'Error executing /show-mob');
             await interaction.editReply({ content: `❌ Error: ${error.message || 'Failed to fetch mob details.'}` });
         }

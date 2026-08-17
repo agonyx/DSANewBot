@@ -1,34 +1,8 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { rollDice } = require('../utils/rollUtil');
-
-function parseDiceNotation(notation) {
-    const match = notation.match(/^(\d+)?w(\d+)([+-]\d+)?$/i);
-    if (!match) return null;
-
-    return {
-        count: parseInt(match[1]) || 1,
-        sides: parseInt(match[2]),
-        modifier: match[3] ? parseInt(match[3]) : 0,
-    };
-}
-
-function rollNotation(notation) {
-    const parsed = parseDiceNotation(notation);
-    if (!parsed) return null;
-
-    const rolls = [];
-    let total = 0;
-
-    for (let i = 0; i < parsed.count; i++) {
-        const roll = rollDice(parsed.sides);
-        rolls.push(roll);
-        total += roll;
-    }
-
-    total += parsed.modifier;
-
-    return { rolls, modifier: parsed.modifier, total };
-}
+const { rollNotation } = require('../utils/diceUtils');
+const { formatInlineRollResult } = require('../utils/inlineRolls');
+const { createEmbed, makeFooter } = require('../utils/embedUtils');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -37,48 +11,72 @@ module.exports = {
         .addStringOption(option =>
             option.setName('dice').setDescription('Dice notation (e.g., 1w20, 2w6+3, w6)').setRequired(true)
         )
-        .addBooleanOption(option => option.setName('visible').setDescription('Make the roll visible to everyone')),
+        .addBooleanOption(option => option.setName('visible').setDescription('Make the roll visible to everyone'))
+        .addBooleanOption(option =>
+            option.setName('animated').setDescription('Publish the roll to a configured Foundry Dice So Nice webhook')
+        ),
 
     async execute(interaction) {
-        const notation = interaction.options.getString('dice').toLowerCase().replace('d', 'w');
+        const notation = interaction.options.getString('dice');
         const visible = interaction.options.getBoolean('visible') || false;
+        const animated = interaction.options.getBoolean('animated') || false;
 
-        const result = rollNotation(notation);
-
-        if (!result) {
+        if (animated && !interaction.guildId) {
             return interaction.reply({
-                content: '❌ Invalid dice notation! Use format like `1w20`, `3w6+2`, or `w6`.',
+                content: '❌ Animated rolls require a server with a configured Dice So Nice webhook.',
                 ephemeral: true,
             });
         }
+        if (animated) await interaction.deferReply({ ephemeral: !visible });
 
-        const rollsDisplay = result.rolls.join(' + ');
-        let modifierDisplay = '';
+        const result = rollNotation(notation, rollDice);
 
-        if (result.modifier > 0) {
-            modifierDisplay = ` + ${result.modifier}`;
-        } else if (result.modifier < 0) {
-            modifierDisplay = ` - ${Math.abs(result.modifier)}`;
+        if (!result) {
+            const response = {
+                content: '❌ Invalid dice notation! Use format like `1w20`, `3w6+2`, or `w6`.',
+                ...(animated ? {} : { ephemeral: true }),
+            };
+            return animated ? interaction.editReply(response) : interaction.reply(response);
         }
 
-        const embed = new EmbedBuilder()
-            .setColor(0x5865f2)
-            .setTitle(`🎲 Dice Roll: ${notation.toUpperCase()}`)
-            .setDescription(`**Result:** \`${result.total}\``)
-            .addFields({
-                name: 'Rolls',
-                value: `\`${rollsDisplay}\`${modifierDisplay}`,
-                inline: true,
-            })
-            .setFooter({
-                text: `Rolled by ${interaction.user.username}`,
-                iconURL: interaction.user.avatarURL(),
-            })
+        let animationStatus = '';
+        if (animated) {
+            const { dispatchWebhookEvent } = require('../services/webhooks');
+            const delivery = await dispatchWebhookEvent(interaction.guildId, 'dice.roll', {
+                integration: 'foundry-dice-so-nice',
+                formula: result.notation.replaceAll('w', 'd'),
+                notation: result.notation,
+                rolls: result.rolls,
+                modifier: result.modifier,
+                total: result.total,
+                userId: interaction.user.id,
+                dsnData: {
+                    throws: [
+                        {
+                            dice: result.rolls.map(value => ({
+                                result: value,
+                                resultLabel: value,
+                                type: `d${result.sides}`,
+                                vectors: [],
+                                options: {},
+                            })),
+                        },
+                    ],
+                },
+            });
+            animationStatus = `\n\n🔗 Dice So Nice: ${delivery.delivered} delivered, ${delivery.failed} failed.`;
+        }
+
+        const embed = createEmbed('info')
+            .setTitle(`🎲 Dice Roll: ${result.notation.toUpperCase()}`)
+            .setDescription(`${formatInlineRollResult(result)}${animationStatus}`)
+            .setFooter(makeFooter(interaction.user, 'Rolled by'))
             .setTimestamp();
 
-        return interaction.reply({
+        const response = {
             embeds: [embed],
-            ephemeral: !visible,
-        });
+            ...(animated ? {} : { ephemeral: !visible }),
+        };
+        return animated ? interaction.editReply(response) : interaction.reply(response);
     },
 };

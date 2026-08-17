@@ -1,40 +1,50 @@
-const { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder } = require('discord.js');
-const { supabase } = require('../utils/supabaseClient');
+const { SlashCommandBuilder, AttachmentBuilder } = require('discord.js');
+const { db } = require('../db');
+const { eq, and } = require('drizzle-orm');
+const { players, stats: statsTable } = require('../db/schema');
+const { readAvatar } = require('../utils/avatarStorage');
 const { rollDice } = require('../utils/rollUtil');
 const { createLogger } = require('../utils/logger');
+const { createEmbed, makeFooter } = require('../utils/embedUtils');
+const { addVisibilityOption, deferWithVisibility } = require('../utils/interactionVisibility');
 const log = createLogger('evade');
 
 module.exports = {
-    data: new SlashCommandBuilder()
-        .setName('evade')
-        .setDescription('Attempt to dodge an attack using your Ausweichen skill'),
+    data: addVisibilityOption(
+        new SlashCommandBuilder()
+            .setName('evade')
+            .setDescription('Attempt to dodge an attack using your Ausweichen skill')
+    ),
     async execute(interaction) {
-        await interaction.deferReply({ ephemeral: true });
+        await deferWithVisibility(interaction);
 
         try {
             const discordId = interaction.user.id;
 
-            const { data: player, error } = await supabase
-                .from('players')
-                .select(
-                    `
-                    id,
-                    name,
-                    avatar,
-                    stats:stats(ausweichen)
-                `
-                )
-                .eq('discord_id', discordId)
-                .eq('selected', 'YES')
-                .single();
+            const [player] = await db
+                .select({ id: players.id, name: players.name, avatar: players.avatar })
+                .from(players)
+                .where(and(eq(players.discord_id, discordId), eq(players.selected, 'YES')))
+                .limit(1);
 
-            if (error || !player?.stats) {
+            if (!player) {
                 return interaction.editReply({
-                    content: '❌ No character selected! Use `/choose-character` first.',
+                    content: '❌ No character selected! Use `/character select` first.',
                 });
             }
 
-            const stats = Array.isArray(player.stats) ? player.stats[0] : player.stats;
+            const [stats] = await db
+                .select({ ausweichen: statsTable.ausweichen })
+                .from(statsTable)
+                .where(eq(statsTable.player_id, player.id))
+                .limit(1);
+
+            if (!stats) {
+                return interaction.editReply({
+                    content: '❌ No character selected! Use `/character select` first.',
+                });
+            }
+
             const { ausweichen } = stats;
             const diceRoll = rollDice(20);
             const success = diceRoll <= ausweichen;
@@ -43,8 +53,7 @@ module.exports = {
             const diceComparison = `${diceRoll}${success ? ' ≤ ' : ' > '}${ausweichen}`;
             const successChance = `${Math.round((ausweichen / 20) * 100)}% evasion chance`;
 
-            const embed = new EmbedBuilder()
-                .setColor(success ? 0x57f287 : 0xed4245)
+            const embed = createEmbed(success ? 'success' : 'danger')
                 .setTitle(`🛡️ Evasion Attempt - ${successIndicator}`)
                 .setDescription(
                     [
@@ -63,26 +72,19 @@ module.exports = {
                     ].join('\n'),
                     inline: true,
                 })
-                .setFooter({
-                    text: `Requested by ${interaction.user.username}`,
-                    iconURL: interaction.user.avatarURL(),
-                })
+                .setFooter(makeFooter(interaction.user))
                 .setTimestamp();
 
             const files = [];
             if (player.avatar) {
                 try {
-                    const { data: avatarData, error: avatarError } = await supabase.storage
-                        .from('avatars')
-                        .download(player.avatar);
+                    const avatarBuffer = await readAvatar(player.avatar);
 
-                    if (!avatarError && avatarData) {
-                        files.push(
-                            new AttachmentBuilder(Buffer.from(await avatarData.arrayBuffer()), { name: 'avatar.png' })
-                        );
+                    if (avatarBuffer) {
+                        files.push(new AttachmentBuilder(avatarBuffer, { name: 'avatar.png' }));
                         embed.setThumbnail('attachment://avatar.png');
                     }
-                } catch (e) {
+                } catch {
                     // Avatar fetch failed, continue without it
                 }
             }

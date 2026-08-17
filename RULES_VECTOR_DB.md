@@ -2,7 +2,7 @@
 
 This document defines the vector database approach for the real scraper pipeline now present in the repo.
 
-The old markdown-first flow is obsolete. The active source pipeline is `DSA5WikiScraper/dsa_scraper_v3`, which scrapes Regelwiki pages, parses them into structured JSON, and exports embedding-ready JSONL corpora. Supabase should ingest that structured output directly.
+The old markdown-first flow is obsolete. The active source pipeline is `DSA5WikiScraper/dsa_scraper_v3`, which scrapes Regelwiki pages, parses them into structured JSON, and exports embedding-ready JSONL corpora. Self-hosted PostgreSQL with pgvector ingests that structured output directly through `scripts/import-rules-v3.js`.
 
 ## What Exists Now
 
@@ -27,7 +27,7 @@ Current scraper export counts from `DSA5WikiScraper/dsa_scraper_v3/data/embeddin
 - `unresolved_doc_count`: 831
 - `failed_url_count`: 57
 
-That means the real migration is not “markdown to Supabase.” It is “scraper JSONL output to Supabase.”
+That means the real migration is not “markdown to a remote document store.” It is “scraper JSONL output to PostgreSQL.”
 
 ## Real Scraper Pipeline
 
@@ -40,7 +40,7 @@ The actual v3 flow is:
     - `canonical_documents.jsonl`
     - `chunks.jsonl`
     - `export_summary.json`
-5. Supabase ingestion should consume those JSONL exports and store them in database tables.
+5. The PostgreSQL importer consumes those JSONL exports and stores them in database tables.
 
 There is no markdown step in the real pipeline.
 
@@ -53,13 +53,13 @@ Do not treat `scripts/embed-rules.js` as the long-term ingestion path.
 Instead:
 
 - treat scraper exports as the authoritative ingestion payload,
-- treat Supabase as the durable retrieval store,
+- treat PostgreSQL with pgvector as the durable retrieval store,
 - keep local scraper files as a build artifact and audit trail,
 - stop adding new markdown files for rules ingestion.
 
-## Recommended Supabase Architecture
+## Recommended PostgreSQL Architecture
 
-Supabase should store two levels of content:
+PostgreSQL stores two levels of content:
 
 | Table         | Purpose                                                       |
 | ------------- | ------------------------------------------------------------- |
@@ -170,7 +170,7 @@ create index rule_chunks_embedding_idx
 - The scraper already distinguishes unresolved documents, failed URLs, and crawl provenance.
 - Reconstructing all of this from markdown would throw away useful structure.
 
-## Import Contract From Scraper To Supabase
+## Import Contract From Scraper To PostgreSQL
 
 The importer should read `canonical_documents.jsonl` and `chunks.jsonl`, not markdown files.
 
@@ -178,7 +178,7 @@ The importer should read `canonical_documents.jsonl` and `chunks.jsonl`, not mar
 
 Map scraper fields like this:
 
-| Scraper field       | Supabase field                  |
+| Scraper field       | PostgreSQL field                |
 | ------------------- | ------------------------------- |
 | `doc_id`            | `rule_pages.doc_id`             |
 | `source_item_id`    | `rule_pages.source_item_id`     |
@@ -200,7 +200,7 @@ Map scraper fields like this:
 
 Map scraper chunk fields like this:
 
-| Scraper field       | Supabase field                  |
+| Scraper field       | PostgreSQL field                |
 | ------------------- | ------------------------------- |
 | `chunk_id`          | `rule_chunks.chunk_id`          |
 | `doc_id`            | lookup `rule_pages.id`          |
@@ -309,12 +309,12 @@ Do not use chunk rows as the canonical exact-lookup surface.
 ## Runtime Boundaries
 
 - The scraper remains local/offline and writes files under `DSA5WikiScraper/dsa_scraper_v3/data/`.
-- The importer writes to Supabase using the service role key.
-- The bot runtime reads from Supabase using read-only paths.
+- The importer writes directly to PostgreSQL using `DATABASE_URL` and resumes by skipping chunks that already have embeddings.
+- The bot runtime reads pages and invokes `match_rule_chunks()` through the shared database layer.
 
 That means the clean long-term flow is:
 
-`DSA5WikiScraper v3 -> JSONL export -> Supabase import -> bot retrieval`
+`DSA5WikiScraper v3 -> JSONL export -> PostgreSQL/pgvector import -> bot retrieval`
 
 ## Implications For Existing Repo Code
 
@@ -327,7 +327,7 @@ The following pieces are now legacy and should be treated that way:
 The replacement path should be:
 
 1. keep the scraper as the source generator,
-2. add a dedicated importer from `canonical_documents.jsonl` and `chunks.jsonl` into Supabase,
+2. use the dedicated importer from `canonical_documents.jsonl` and `chunks.jsonl` into PostgreSQL,
 3. replace the single-table `rule_documents` pattern with `rule_pages` + `rule_chunks`,
 4. update `utils/rulesClient.js` so semantic search hits chunks and exact lookup hits pages.
 
@@ -336,9 +336,7 @@ The replacement path should be:
 Required for the importer/runtime side:
 
 ```bash
-SUPABASE_URL=https://<project-ref>.supabase.co
-SUPABASE_ANON_KEY=<anon_key>
-SUPABASE_SERVICE_KEY=<service_role_key>
+DATABASE_URL=postgresql://<user>:<password>@<host>:5432/<database>
 OPENAI_API_KEY=<embedding_key>
 ```
 
@@ -346,7 +344,7 @@ OPENAI_API_KEY=<embedding_key>
 
 - Markdown files are not part of the ingestion pipeline.
 - Scraper JSON and JSONL exports are the ingestion payload.
-- Supabase is the durable retrieval store.
+- PostgreSQL with pgvector is the durable retrieval store.
 - `canonical_documents.jsonl` feeds `rule_pages`.
 - `chunks.jsonl` feeds `rule_chunks`.
 - Embeddings are generated from chunk text.
@@ -373,7 +371,7 @@ The correct vector strategy for this repo is:
 
 - scrape with `DSA5WikiScraper/dsa_scraper_v3`,
 - export canonical documents and chunks as JSONL,
-- import those structured records into Supabase,
+- import those structured records into PostgreSQL,
 - store page records in `rule_pages`,
 - store vectorized chunks in `rule_chunks`,
 - query chunks semantically and pages exactly.

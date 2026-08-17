@@ -1,14 +1,14 @@
 const {
     SlashCommandBuilder,
-    EmbedBuilder,
     ActionRowBuilder,
     ButtonBuilder,
     ButtonStyle,
     StringSelectMenuBuilder,
     ComponentType,
 } = require('discord.js');
-const { hybridSearch, getRankedTitleMatches, fetchPageContent } = require('../utils/rulesClient');
+const { searchRules, getRulePage, suggestRuleTitles } = require('../services/rules');
 const { createLogger } = require('../utils/logger');
+const { createEmbed, makeFooter, truncateText } = require('../utils/embedUtils');
 
 const log = createLogger('regel');
 
@@ -39,13 +39,6 @@ function formatCategoryLabel(category) {
     return CATEGORY_LABELS[category] || category;
 }
 
-function truncate(text, maxLength) {
-    if (!text || text.length <= maxLength) return text || '';
-    const truncated = text.substring(0, maxLength);
-    const lastSpace = truncated.lastIndexOf(' ');
-    return (lastSpace > maxLength * 0.6 ? truncated.substring(0, lastSpace) : truncated) + '…';
-}
-
 /**
  * Build embed for a selected page with match type indicators
  * @param {Object} page - The page to build embed for
@@ -58,10 +51,9 @@ function buildPageEmbed(page, exactMatches, semanticMatches, user) {
     const pageTitle = page.title || 'Unbenannt';
     const pageContent = page.chunk_text || page.normalized_content || page.content || '';
     const pageSourceUrl = page.source_url;
-    const preview = truncate(pageContent, 1500);
+    const preview = truncateText(pageContent, 1500, '');
 
-    const embed = new EmbedBuilder()
-        .setColor(0x8b4513)
+    const embed = createEmbed('rules')
         .setTitle(pageSourceUrl ? `[${pageTitle}](${pageSourceUrl})` : pageTitle)
         .setDescription(preview || '*Kein Inhalt verfügbar.*');
 
@@ -97,12 +89,7 @@ function buildPageEmbed(page, exactMatches, semanticMatches, user) {
         embed.addFields(fields);
     }
 
-    embed
-        .setFooter({
-            text: `DSA 5 Regelwiki · ${user.username}`,
-            iconURL: user.avatarURL(),
-        })
-        .setTimestamp();
+    embed.setFooter(makeFooter(user, 'DSA 5 Regelwiki ·')).setTimestamp();
 
     return embed;
 }
@@ -174,7 +161,10 @@ module.exports = {
         const cache = interaction.client.rulePageTitleCache || [];
 
         try {
-            const matches = getRankedTitleMatches(focusedValue, cache, { category, limit: 25 });
+            const matches = await suggestRuleTitles(
+                { discordId: interaction.user.id },
+                { query: focusedValue, category, cache }
+            );
             const choices = matches.map(page => ({
                 name: page.title,
                 value: page.title,
@@ -197,16 +187,14 @@ module.exports = {
 
         try {
             const cache = interaction.client.rulePageTitleCache || [];
-            const { selectedPage, exactMatches, semanticMatches } = await hybridSearch(query, cache, {
-                category,
-                limit,
-                threshold: 0.4,
-            });
+            const { selectedPage, exactMatches, semanticMatches } = await searchRules(
+                { discordId: interaction.user.id },
+                { query, category, limit, threshold: 0.4, cache }
+            );
 
             // No results at all
             if (!selectedPage) {
-                const noResultEmbed = new EmbedBuilder()
-                    .setColor(0x95a5a6)
+                const noResultEmbed = createEmbed('warning')
                     .setTitle('📖 Regelsuche')
                     .setDescription(
                         `Keine Ergebnisse für **„${query}"**${category ? ` in *${formatCategoryLabel(category)}*` : ''}.\n\nVersuche andere Suchbegriffe oder entferne den Kategoriefilter.`
@@ -292,9 +280,11 @@ module.exports = {
                 // Fetch full content if not available (cache rows lack content)
                 let pageData = selectedPageData;
                 if (!selectedPageData.normalized_content && !selectedPageData.chunk_text && !selectedPageData.content) {
-                    const fullPage = await fetchPageContent(selectedDocId);
-                    if (fullPage) {
+                    try {
+                        const fullPage = await getRulePage({ discordId: interaction.user.id }, selectedDocId);
                         pageData = { ...selectedPageData, ...fullPage };
+                    } catch {
+                        // page not found — keep the cached metadata
                     }
                 }
 

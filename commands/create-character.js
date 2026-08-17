@@ -1,5 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { callEdgeFunction } = require('../utils/supabaseClient');
+const { createCharacter } = require('../services/characters');
 const { createLogger } = require('../utils/logger');
 const log = createLogger('create-character');
 
@@ -12,22 +12,11 @@ module.exports = {
         ),
     async execute(interaction) {
         const name = interaction.options.getString('name');
-        const discordId = interaction.user.id;
 
         try {
             await interaction.deferReply({ ephemeral: true });
-
-            const { data, status } = await callEdgeFunction('create-player', {
-                name: name,
-                discordId: discordId,
-            });
-
-            if (status === 201) {
-                await interaction.editReply({ content: `Successfully created character ${name}` });
-            } else {
-                log.error({ data }, 'Failed to create character');
-                await interaction.editReply({ content: 'Failed to create character. Please try again later.' });
-            }
+            await createCharacter({ discordId: interaction.user.id }, { name });
+            await interaction.editReply({ content: `Successfully created character ${name}` });
         } catch (error) {
             log.error({ error }, 'Error creating character');
             const errorMessage = error.data?.error || error.message || 'An unknown error occurred';

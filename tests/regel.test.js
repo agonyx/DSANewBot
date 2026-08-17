@@ -41,13 +41,11 @@ jest.mock('discord.js', () => ({
     },
 }));
 
-// Mock rulesClient
-jest.mock('../utils/rulesClient', () => ({
+// Mock the command-facing service boundary; service internals are covered by API tests.
+jest.mock('../services/rules', () => ({
     searchRules: jest.fn(),
-    getRuleByTitle: jest.fn(),
-    getRankedTitleMatches: jest.fn(),
-    hybridSearch: jest.fn(),
-    fetchPageContent: jest.fn(),
+    getRulePage: jest.fn(),
+    suggestRuleTitles: jest.fn(),
 }));
 
 // Mock logger
@@ -58,7 +56,12 @@ jest.mock('../utils/logger', () => ({
     })),
 }));
 
-const { getRankedTitleMatches, hybridSearch, fetchPageContent } = require('../utils/rulesClient');
+const {
+    suggestRuleTitles: getRankedTitleMatches,
+    searchRules: hybridSearch,
+    getRulePage: fetchPageContent,
+} = require('../services/rules');
+const { EMBED_COLORS } = require('../utils/embedUtils');
 
 describe('regel command autocomplete', () => {
     beforeEach(() => {
@@ -82,6 +85,7 @@ describe('regel command autocomplete', () => {
 
             const mockRespond = jest.fn();
             const mockInteraction = {
+                user: { id: 'test-user' },
                 options: {
                     getFocused: jest.fn().mockReturnValue('Finte'),
                     getString: jest.fn().mockReturnValue(null), // no category selected
@@ -94,10 +98,10 @@ describe('regel command autocomplete', () => {
 
             await regelCommand.autocomplete(mockInteraction);
 
-            expect(getRankedTitleMatches).toHaveBeenCalledWith('Finte', mockInteraction.client.rulePageTitleCache, {
-                category: null,
-                limit: 25,
-            });
+            expect(getRankedTitleMatches).toHaveBeenCalledWith(
+                { discordId: 'test-user' },
+                { query: 'Finte', category: null, cache: mockInteraction.client.rulePageTitleCache }
+            );
             expect(mockRespond).toHaveBeenCalledTimes(1);
 
             const respondedChoices = mockRespond.mock.calls[0][0];
@@ -114,6 +118,7 @@ describe('regel command autocomplete', () => {
 
             const mockRespond = jest.fn();
             const mockInteraction = {
+                user: { id: 'test-user' },
                 options: {
                     getFocused: jest.fn().mockReturnValue('Drache'),
                     getString: jest.fn().mockReturnValue('bestiarium'), // category selected
@@ -126,10 +131,10 @@ describe('regel command autocomplete', () => {
 
             await regelCommand.autocomplete(mockInteraction);
 
-            expect(getRankedTitleMatches).toHaveBeenCalledWith('Drache', mockInteraction.client.rulePageTitleCache, {
-                category: 'bestiarium',
-                limit: 25,
-            });
+            expect(getRankedTitleMatches).toHaveBeenCalledWith(
+                { discordId: 'test-user' },
+                { query: 'Drache', category: 'bestiarium', cache: mockInteraction.client.rulePageTitleCache }
+            );
 
             const respondedChoices = mockRespond.mock.calls[0][0];
             expect(respondedChoices).toHaveLength(1);
@@ -149,6 +154,7 @@ describe('regel command autocomplete', () => {
 
             const mockRespond = jest.fn();
             const mockInteraction = {
+                user: { id: 'test-user' },
                 options: {
                     getFocused: jest.fn().mockReturnValue('Test'),
                     getString: jest.fn().mockReturnValue(null),
@@ -172,6 +178,7 @@ describe('regel command autocomplete', () => {
 
             const mockRespond = jest.fn();
             const mockInteraction = {
+                user: { id: 'test-user' },
                 options: {
                     getFocused: jest.fn().mockReturnValue('NonexistentRule'),
                     getString: jest.fn().mockReturnValue(null),
@@ -192,6 +199,7 @@ describe('regel command autocomplete', () => {
 
             const mockRespond = jest.fn();
             const mockInteraction = {
+                user: { id: 'test-user' },
                 options: {
                     getFocused: jest.fn().mockReturnValue('Test'),
                     getString: jest.fn().mockReturnValue(null),
@@ -205,7 +213,10 @@ describe('regel command autocomplete', () => {
             await regelCommand.autocomplete(mockInteraction);
 
             // Should use empty array as fallback
-            expect(getRankedTitleMatches).toHaveBeenCalledWith('Test', [], { category: null, limit: 25 });
+            expect(getRankedTitleMatches).toHaveBeenCalledWith(
+                { discordId: 'test-user' },
+                { query: 'Test', category: null, cache: [] }
+            );
             expect(mockRespond).toHaveBeenCalledWith([]);
         });
 
@@ -216,6 +227,7 @@ describe('regel command autocomplete', () => {
 
             const mockRespond = jest.fn();
             const mockInteraction = {
+                user: { id: 'test-user' },
                 options: {
                     getFocused: jest.fn().mockReturnValue('Test'),
                     getString: jest.fn().mockReturnValue(null),
@@ -265,6 +277,7 @@ describe('regel command execute', () => {
                 rulePageTitleCache: options.cache || [],
             },
             user: {
+                id: 'user-123',
                 username: 'TestUser',
                 avatarURL: jest.fn().mockReturnValue('https://example.com/avatar.png'),
             },
@@ -304,11 +317,10 @@ describe('regel command execute', () => {
 
             await regelCommand.execute(mockInteraction);
 
-            expect(hybridSearch).toHaveBeenCalledWith('Finte I', [], {
-                category: null,
-                limit: 3,
-                threshold: 0.4,
-            });
+            expect(hybridSearch).toHaveBeenCalledWith(
+                { discordId: 'user-123' },
+                { query: 'Finte I', category: null, limit: 3, threshold: 0.4, cache: [] }
+            );
 
             // Verify editReply was called
             expect(mockInteraction.editReply).toHaveBeenCalledTimes(1);
@@ -511,10 +523,10 @@ describe('regel command execute', () => {
             expect(replyCall.embeds).toBeDefined();
             expect(replyCall.embeds).toHaveLength(1);
 
-            // Verify the embed has no-result styling (gray color)
+            // Verify the embed has no-result warning styling.
             const { EmbedBuilder } = require('discord.js');
             const embedInstance = EmbedBuilder.mock.results[0].value;
-            expect(embedInstance.setColor).toHaveBeenCalledWith(0x95a5a6);
+            expect(embedInstance.setColor).toHaveBeenCalledWith(EMBED_COLORS.warning);
         });
 
         test('shows no-result embed with category filter info', async () => {
@@ -535,11 +547,10 @@ describe('regel command execute', () => {
 
             await regelCommand.execute(mockInteraction);
 
-            expect(hybridSearch).toHaveBeenCalledWith('Nonexistent', [], {
-                category: 'bestiarium',
-                limit: 3,
-                threshold: 0.4,
-            });
+            expect(hybridSearch).toHaveBeenCalledWith(
+                { discordId: 'user-123' },
+                { query: 'Nonexistent', category: 'bestiarium', limit: 3, threshold: 0.4, cache: [] }
+            );
         });
 
         test('shows API key error message when OPENAI_API_KEY missing', async () => {

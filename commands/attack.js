@@ -1,60 +1,71 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { supabase } = require('../utils/supabaseClient');
+const { SlashCommandBuilder } = require('discord.js');
+const { db } = require('../db');
+const { eq, and, inArray } = require('drizzle-orm');
+const { players, stats, weapons, playerActionModifications, actionModifications } = require('../db/schema');
 const { resolveAttack, parseAndRollDamage, applySoak, resolveDefense } = require('../utils/combatUtils');
+const {
+    applyWoundDamage,
+    calculateWoundPenalty,
+    calculateWoundThreshold,
+    isIncapacitatedByWounds,
+} = require('../utils/woundUtils');
 const { createLogger } = require('../utils/logger');
+const { createEmbed } = require('../utils/embedUtils');
 const log = createLogger('attack');
 
 async function getPlayerData(discordId) {
+    let player, statsRow, weaponsRows;
     try {
-        const { data: player, error } = await supabase
-            .from('players')
-            .select(
-                `
-                id,
-                name,
-                stats:stats(*),
-                weapons:weapons(*)
-            `
-            )
-            .eq('discord_id', discordId)
-            .eq('selected', 'YES')
-            .single();
+        [player] = await db
+            .select({ id: players.id, name: players.name })
+            .from(players)
+            .where(and(eq(players.discord_id, discordId), eq(players.selected, 'YES')))
+            .limit(1);
 
-        if (error || !player?.stats || !player?.weapons) {
+        if (!player) {
             throw new Error(`Incomplete character data. Please ensure you have a character with stats and weapons.`);
         }
 
-        const stats = Array.isArray(player.stats) ? player.stats[0] : player.stats;
+        [statsRow] = await db.select().from(stats).where(eq(stats.player_id, player.id)).limit(1);
+        weaponsRows = await db.select().from(weapons).where(eq(weapons.player_id, player.id));
 
-        const offensiveWeapon = player.weapons.find(
-            w => w.is_equipped === 'Y' && (w.equipped_slot === 'OFFENSE' || w.equipped_slot === 'ADAPTIVE')
-        );
-        const defensiveWeapon = player.weapons.find(
-            w => w.is_equipped === 'Y' && (w.equipped_slot === 'DEFENSE' || w.equipped_slot === 'ADAPTIVE')
-        );
-
-        const at = offensiveWeapon ? offensiveWeapon.at : stats.attacke_basis || 8;
-        const tp = offensiveWeapon ? offensiveWeapon.tp : '1w6';
-        const pa = defensiveWeapon ? defensiveWeapon.pa : stats.parade_basis || 6;
-        const rs = stats.ruestungsschutz || 0;
-
-        return {
-            id: player.id,
-            name: player.name,
-            statsId: stats.id,
-            currentHP: stats.le_current,
-            maxHP: stats.le_max,
-            effectiveStats: {
-                currentAT: at,
-                currentPA: pa,
-                currentRS: rs,
-                currentTP: tp,
-            },
-        };
+        if (!statsRow) {
+            throw new Error(`Incomplete character data. Please ensure you have a character with stats and weapons.`);
+        }
     } catch (error) {
         if (error.message?.includes('Incomplete')) throw error;
-        throw new Error(`No character selected for the user with ID ${discordId}. Use \`/choose-character\`.`, { cause: error });
+        throw new Error(`No character selected for the user with ID ${discordId}. Use \`/character select\`.`, {
+            cause: error,
+        });
     }
+
+    const offensiveWeapon = weaponsRows.find(
+        w => w.is_equipped === 'Y' && (w.equipped_slot === 'OFFENSE' || w.equipped_slot === 'ADAPTIVE')
+    );
+    const defensiveWeapon = weaponsRows.find(
+        w => w.is_equipped === 'Y' && (w.equipped_slot === 'DEFENSE' || w.equipped_slot === 'ADAPTIVE')
+    );
+
+    const at = offensiveWeapon ? offensiveWeapon.at : statsRow.attacke_basis || 8;
+    const tp = offensiveWeapon ? offensiveWeapon.tp : '1w6';
+    const pa = defensiveWeapon ? defensiveWeapon.pa : statsRow.parade_basis || 6;
+    const rs = statsRow.ruestungsschutz || 0;
+
+    return {
+        id: player.id,
+        name: player.name,
+        statsId: statsRow.id,
+        currentHP: statsRow.le_current,
+        maxHP: statsRow.le_max,
+        wounds: statsRow.wounds,
+        woundThreshold: calculateWoundThreshold(statsRow.ko, statsRow.wound_threshold_modifier),
+        effectiveStats: {
+            currentAT: at,
+            currentPA: pa,
+            currentRS: rs,
+            currentTP: tp,
+        },
+    };
 }
 
 module.exports = {
@@ -75,27 +86,32 @@ module.exports = {
         const { user } = interaction;
 
         try {
-            const { data: player } = await supabase
-                .from('players')
-                .select('id')
-                .eq('discord_id', user.id)
-                .eq('selected', 'YES')
-                .single();
+            const [player] = await db
+                .select({ id: players.id })
+                .from(players)
+                .where(and(eq(players.discord_id, user.id), eq(players.selected, 'YES')))
+                .limit(1);
 
             if (!player) return await interaction.respond([]);
 
-            const { data: skills } = await supabase
-                .from('player_action_modifications')
-                .select(
-                    `
-                    action_modification:action_modifications(id, name, action_type)
-                `
-                )
-                .eq('player_id', player.id);
+            const pams = await db
+                .select({ action_modification_id: playerActionModifications.action_modification_id })
+                .from(playerActionModifications)
+                .where(eq(playerActionModifications.player_id, player.id));
 
-            const meleeSkills = (skills || [])
-                .map(s => s.action_modification)
-                .filter(s => s && s.action_type === 'MELEE');
+            const ids = pams.map(p => p.action_modification_id);
+            let meleeSkills = [];
+            if (ids.length) {
+                const ams = await db
+                    .select({
+                        id: actionModifications.id,
+                        name: actionModifications.name,
+                        action_type: actionModifications.action_type,
+                    })
+                    .from(actionModifications)
+                    .where(inArray(actionModifications.id, ids));
+                meleeSkills = ams.filter(s => s.action_type === 'MELEE');
+            }
 
             const choices = meleeSkills.map(skill => ({ name: skill.name, value: skill.id }));
             const filtered = choices.filter(choice => choice.name.toLowerCase().startsWith(focusedValue.toLowerCase()));
@@ -125,22 +141,30 @@ module.exports = {
             const attacker = await getPlayerData(attackerUser.id);
             const target = await getPlayerData(targetUser.id);
 
+            if (isIncapacitatedByWounds(attacker.wounds)) {
+                return interaction.editReply(
+                    `❌ ${attacker.name} is incapacitated by ${attacker.wounds} wounds and cannot attack.`
+                );
+            }
+
             if (target.currentHP <= 0) {
                 return interaction.editReply(`❌ ${target.name} is already defeated!`);
             }
 
             let maneuver = null;
             if (maneuverId) {
-                const { data: maneuverData } = await supabase
-                    .from('action_modifications')
-                    .select('*')
-                    .eq('id', maneuverId)
-                    .single();
-                maneuver = maneuverData;
+                const [maneuverData] = await db
+                    .select()
+                    .from(actionModifications)
+                    .where(eq(actionModifications.id, maneuverId))
+                    .limit(1);
+                maneuver = maneuverData || null;
             }
 
-            let atValue = attacker.effectiveStats.currentAT;
-            let paValue = target.effectiveStats.currentPA;
+            const attackerWoundPenalty = calculateWoundPenalty(attacker.wounds);
+            const targetWoundPenalty = calculateWoundPenalty(target.wounds);
+            let atValue = Math.max(0, attacker.effectiveStats.currentAT - attackerWoundPenalty);
+            let paValue = Math.max(0, target.effectiveStats.currentPA - targetWoundPenalty);
             let damageBonus = 0;
             let description = `**${attacker.name}** attacks **${target.name}**!\n\n`;
 
@@ -173,7 +197,7 @@ module.exports = {
                     break;
             }
 
-            if (hitConnected) {
+            if (hitConnected && !isIncapacitatedByWounds(target.wounds)) {
                 const defenseResult = resolveDefense(paValue);
                 description += `\n🛡️ **${target.name}'s Parry:** ${defenseResult.roll} / ${paValue}`;
                 if (defenseResult.success) {
@@ -193,17 +217,26 @@ module.exports = {
 
                 description += `\n💥 **Damage:** ${totalDamage} TP - ${target.effectiveStats.currentRS} RS = **${finalDamage} Damage!**`;
 
-                const newHP = Math.max(0, target.currentHP - finalDamage);
+                const newHP = target.currentHP - finalDamage;
+                const woundResult = applyWoundDamage(target.wounds, finalDamage, target.woundThreshold);
 
                 if (newHP !== target.currentHP) {
-                    const { error: updateError } = await supabase
-                        .from('stats')
-                        .update({ le_current: newHP })
-                        .eq('id', target.statsId);
-
-                    if (updateError) log.error({ error: updateError }, 'Failed to update target HP');
+                    try {
+                        await db
+                            .update(stats)
+                            .set({ le_current: newHP, wounds: woundResult.totalWounds })
+                            .where(eq(stats.id, target.statsId));
+                    } catch (updateError) {
+                        log.error({ error: updateError }, 'Failed to update target HP');
+                    }
 
                     description += `\n❤️ **${target.name}'s HP:** ${newHP} / ${target.maxHP}`;
+                    if (woundResult.woundsInflicted > 0) {
+                        description += `\n🩸 **Wounds:** +${woundResult.woundsInflicted} (${woundResult.totalWounds} total; threshold ${woundResult.woundThreshold})`;
+                        if (isIncapacitatedByWounds(woundResult.totalWounds)) {
+                            description += ' — **incapacitated**';
+                        }
+                    }
                     if (newHP <= 0) {
                         description += `\n\n**${target.name} has been defeated!**`;
                     }
@@ -212,8 +245,7 @@ module.exports = {
                 }
             }
 
-            const resultEmbed = new EmbedBuilder()
-                .setColor(hitConnected ? '#2ECC71' : '#E74C3C')
+            const resultEmbed = createEmbed(hitConnected ? 'success' : 'danger')
                 .setTitle('Standalone Attack Resolution')
                 .setDescription(description)
                 .setTimestamp();

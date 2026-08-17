@@ -1,5 +1,7 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { supabase, callEdgeFunction } = require('../utils/supabaseClient');
+const { db, callEdgeFunction } = require('../db');
+const { eq, and, inArray } = require('drizzle-orm');
+const { combatSessions, combatants } = require('../db/schema');
 const { updateCombatDisplay } = require('../handlers/combatHandler');
 const { createLogger } = require('../utils/logger');
 const log = createLogger('end-combat');
@@ -24,16 +26,25 @@ module.exports = {
             if (interaction.client.activeCombats?.has(channelId)) {
                 sessionData = interaction.client.activeCombats.get(channelId);
             } else {
-                const { data, error } = await supabase
-                    .from('combat_sessions')
-                    .select('*, combatants(*)')
-                    .eq('channel_id', channelId)
-                    .in('state', ['SETUP', 'RUNNING', 'PAUSED'])
-                    .single();
+                const [data] = await db
+                    .select()
+                    .from(combatSessions)
+                    .where(
+                        and(
+                            eq(combatSessions.channel_id, channelId),
+                            inArray(combatSessions.state, ['SETUP', 'RUNNING', 'PAUSED'])
+                        )
+                    )
+                    .limit(1);
 
-                if (error || !data) {
+                if (!data) {
                     return interaction.editReply('❌ There is no active combat session in this channel to end.');
                 }
+
+                const combatantsRows = await db
+                    .select()
+                    .from(combatants)
+                    .where(eq(combatants.session_id, data.id));
 
                 sessionData = {
                     ...data,
@@ -44,19 +55,18 @@ module.exports = {
                     turnOrder: data.turn_order,
                     currentTurnIndex: data.current_turn_index,
                     currentRound: data.current_round,
-                    combatants:
-                        data.combatants?.map(c => ({
-                            ...c,
-                            maxHP: c.max_hp,
-                            currentHP: c.current_hp,
-                            initiativeRoll: c.initiative_roll,
-                            initiativeBase: c.initiative_base,
-                            playerId: c.player_id,
-                            discordUserId: c.discord_user_id,
-                            mobDefinitionId: c.mob_definition_id,
-                            sessionId: c.session_id,
-                            isActiveTurn: c.is_active_turn,
-                        })) || [],
+                    combatants: combatantsRows.map(c => ({
+                        ...c,
+                        maxHP: c.max_hp,
+                        currentHP: c.current_hp,
+                        initiativeRoll: c.initiative_roll,
+                        initiativeBase: c.initiative_base,
+                        playerId: c.player_id,
+                        discordUserId: c.discord_user_id,
+                        mobDefinitionId: c.mob_definition_id,
+                        sessionId: c.session_id,
+                        isActiveTurn: c.is_active_turn,
+                    })),
                 };
                 sessionData.currentRound = sessionData.currentRound || 1;
 

@@ -1,5 +1,7 @@
 const { SlashCommandBuilder, StringSelectMenuBuilder, ActionRowBuilder } = require('discord.js');
-const { supabase } = require('../utils/supabaseClient');
+const { db } = require('../db');
+const { eq, and } = require('drizzle-orm');
+const { combatSessions, combatants } = require('../db/schema');
 const { updateCombatDisplay } = require('../handlers/combatHandler');
 const { createLogger } = require('../utils/logger');
 const log = createLogger('resume-combat');
@@ -8,17 +10,21 @@ async function resumeSingleCombat(interaction, sessionToResume) {
     const { client, channelId } = interaction;
     const sessionId = sessionToResume.id;
 
-    const { data: updatedSession, error } = await supabase
-        .from('combat_sessions')
-        .update({
+    const [updatedSession] = await db
+        .update(combatSessions)
+        .set({
             state: 'RUNNING',
             combat_log: [...(sessionToResume.combat_log || []), '--- Combat Resumed ---'],
         })
-        .eq('id', sessionId)
-        .select('*, combatants(*)')
-        .single();
+        .where(eq(combatSessions.id, sessionId))
+        .returning();
 
-    if (error) throw error;
+    if (!updatedSession) throw new Error('Session not found');
+
+    const updatedCombatants = await db
+        .select()
+        .from(combatants)
+        .where(eq(combatants.session_id, sessionId));
 
     if (!client.activeCombats) {
         client.activeCombats = new Map();
@@ -33,19 +39,18 @@ async function resumeSingleCombat(interaction, sessionToResume) {
         turnOrder: updatedSession.turn_order,
         currentTurnIndex: updatedSession.current_turn_index,
         currentRound: updatedSession.current_round,
-        combatants:
-            updatedSession.combatants?.map(c => ({
-                ...c,
-                maxHP: c.max_hp,
-                currentHP: c.current_hp,
-                initiativeRoll: c.initiative_roll,
-                initiativeBase: c.initiative_base,
-                playerId: c.player_id,
-                discordUserId: c.discord_user_id,
-                mobDefinitionId: c.mob_definition_id,
-                sessionId: c.session_id,
-                isActiveTurn: c.is_active_turn,
-            })) || [],
+        combatants: updatedCombatants.map(c => ({
+            ...c,
+            maxHP: c.max_hp,
+            currentHP: c.current_hp,
+            initiativeRoll: c.initiative_roll,
+            initiativeBase: c.initiative_base,
+            playerId: c.player_id,
+            discordUserId: c.discord_user_id,
+            mobDefinitionId: c.mob_definition_id,
+            sessionId: c.session_id,
+            isActiveTurn: c.is_active_turn,
+        })),
     };
     memorySession.currentRound = memorySession.currentRound || 1;
     client.activeCombats.set(channelId, memorySession);
@@ -68,15 +73,17 @@ module.exports = {
                 return interaction.editReply('❌ A combat session is already active in this channel.');
             }
 
-            const { data: pausedSessions, error } = await supabase
-                .from('combat_sessions')
-                .select('*, combatants(*)')
-                .eq('channel_id', channelId)
-                .eq('state', 'PAUSED');
+            const pausedSessions = await db
+                .select()
+                .from(combatSessions)
+                .where(
+                    and(
+                        eq(combatSessions.channel_id, channelId),
+                        eq(combatSessions.state, 'PAUSED')
+                    )
+                );
 
-            if (error) throw error;
-
-            if (!pausedSessions || pausedSessions.length === 0) {
+            if (pausedSessions.length === 0) {
                 return interaction.editReply('❌ No paused combat sessions found in this channel to resume.');
             }
 

@@ -1,5 +1,8 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { supabase } = require('../utils/supabaseClient');
+const { db } = require('../db');
+const { eq, and } = require('drizzle-orm');
+const { players } = require('../db/schema');
+const { saveAvatar } = require('../utils/avatarStorage');
 const { createLogger } = require('../utils/logger');
 const log = createLogger('upload-avatar');
 
@@ -14,16 +17,15 @@ module.exports = {
         try {
             const discordId = interaction.user.id;
 
-            const { data: player, error: playerError } = await supabase
-                .from('players')
-                .select('id')
-                .eq('discord_id', discordId)
-                .eq('selected', 'YES')
-                .single();
+            const [player] = await db
+                .select({ id: players.id })
+                .from(players)
+                .where(and(eq(players.discord_id, discordId), eq(players.selected, 'YES')))
+                .limit(1);
 
-            if (playerError || !player?.id) {
+            if (!player) {
                 return interaction.reply({
-                    content: 'No player selected. Use the /choose-character command first.',
+                    content: 'No character selected. Use `/character select` first.',
                     ephemeral: true,
                 });
             }
@@ -39,27 +41,19 @@ module.exports = {
             const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
 
             const fileExt = attachment.name.split('.').pop();
-            const fileName = `${playerId}-${Date.now()}.${fileExt}`;
 
-            const { data: uploadData, error: uploadError } = await supabase.storage
-                .from('avatars')
-                .upload(fileName, imageBuffer, {
-                    contentType: attachment.contentType,
-                    upsert: true,
-                });
-
-            if (uploadError) {
-                log.error({ error: uploadError }, 'Upload error');
+            let fileName;
+            try {
+                fileName = await saveAvatar(playerId, imageBuffer, fileExt);
+            } catch (err) {
+                log.error({ error: err }, 'Upload error');
                 return interaction.reply({ content: 'Failed to upload image.', ephemeral: true });
             }
 
-            const { error: updateError } = await supabase
-                .from('players')
-                .update({ avatar: fileName })
-                .eq('id', playerId);
-
-            if (updateError) {
-                log.error({ error: updateError }, 'Update error');
+            try {
+                await db.update(players).set({ avatar: fileName }).where(eq(players.id, playerId));
+            } catch (err) {
+                log.error({ error: err }, 'Update error');
                 return interaction.reply({ content: 'Failed to update character avatar.', ephemeral: true });
             }
 

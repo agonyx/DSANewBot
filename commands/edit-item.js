@@ -1,6 +1,5 @@
 const {
     SlashCommandBuilder,
-    EmbedBuilder,
     ActionRowBuilder,
     StringSelectMenuBuilder,
     ModalBuilder,
@@ -9,19 +8,87 @@ const {
     ButtonBuilder,
     ButtonStyle,
 } = require('discord.js');
-const { supabase } = require('../utils/supabaseClient');
+const { db } = require('../db');
+const { eq, and } = require('drizzle-orm');
+const { players, items } = require('../db/schema');
 const { createLogger } = require('../utils/logger');
+const { synchronizeEquipmentDerivedStatsInTransaction } = require('../services/equipment');
+const { createEmbed, truncateText } = require('../utils/embedUtils');
 const log = createLogger('edit-item');
 
 const ITEM_STAT_CONFIG = [
     { key: 'name', backendKey: 'name', label: 'Name', type: 'string', style: TextInputStyle.Short },
     { key: 'type', backendKey: 'type', label: 'Type', type: 'item_type', style: TextInputStyle.Short },
-    { key: 'quantity', backendKey: 'quantity', label: 'Quantity', type: 'integer', min: 0, style: TextInputStyle.Short },
+    {
+        key: 'quantity',
+        backendKey: 'quantity',
+        label: 'Quantity',
+        type: 'integer',
+        min: 1,
+        style: TextInputStyle.Short,
+    },
     { key: 'effect', backendKey: 'effect', label: 'Effect', type: 'string_long', style: TextInputStyle.Paragraph },
-    { key: 'description', backendKey: 'description', label: 'Description', type: 'string_long', style: TextInputStyle.Paragraph },
+    {
+        key: 'description',
+        backendKey: 'description',
+        label: 'Description',
+        type: 'string_long',
+        style: TextInputStyle.Paragraph,
+    },
+    {
+        key: 'price',
+        backendKey: 'price_kreuzer',
+        label: 'Value (Kreuzer)',
+        type: 'integer',
+        min: 0,
+        style: TextInputStyle.Short,
+    },
+    {
+        key: 'weight',
+        backendKey: 'weight_grams',
+        label: 'Weight (grams)',
+        type: 'integer',
+        min: 0,
+        style: TextInputStyle.Short,
+    },
+    {
+        key: 'slot',
+        backendKey: 'default_slot',
+        label: 'Default Slot',
+        type: 'equipment_slot',
+        style: TextInputStyle.Short,
+    },
+    {
+        key: 'armor_rs',
+        backendKey: 'armor_rs',
+        label: 'Armor RS',
+        type: 'integer',
+        min: 0,
+        style: TextInputStyle.Short,
+    },
+    {
+        key: 'armor_be',
+        backendKey: 'armor_be',
+        label: 'Armor BE',
+        type: 'integer',
+        min: 0,
+        style: TextInputStyle.Short,
+    },
 ];
 
-const VALID_ITEM_TYPES = ['POTION', 'FOOD', 'SCROLL', 'WEAPON', 'ARMOR', 'VALUABLE', 'MISC'];
+const VALID_ITEM_TYPES = [
+    'POTION',
+    'FOOD',
+    'SCROLL',
+    'WEAPON',
+    'ARMOR',
+    'CLOTHING',
+    'GEAR',
+    'CONSUMABLE',
+    'VALUABLE',
+    'MISC',
+];
+const VALID_EQUIPMENT_SLOTS = ['HEAD', 'BODY', 'ARMS', 'HANDS', 'LEGS', 'FEET', 'BACK', 'WAIST', 'NECK', 'ACCESSORY'];
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -32,22 +99,22 @@ module.exports = {
         await interaction.deferReply({ ephemeral: true });
 
         try {
-            const { data: player, error: playerError } = await supabase
-                .from('players')
-                .select(`
-                    id,
-                    name,
-                    items:items(*)
-                `)
-                .eq('discord_id', interaction.user.id)
-                .eq('selected', 'YES')
-                .single();
+            const [playerRow] = await db
+                .select({ id: players.id, name: players.name })
+                .from(players)
+                .where(and(eq(players.discord_id, interaction.user.id), eq(players.selected, 'YES')))
+                .limit(1);
 
-            if (playerError || !player) {
+            if (!playerRow) {
                 return interaction.editReply({
-                    content: 'No selected character! Use /choose-character first',
+                    content: 'No selected character! Use `/character select` first.',
                 });
             }
+
+            // Separate query for the items relation (Drizzle can't nest like PostgREST).
+            const playerItems = await db.select().from(items).where(eq(items.player_id, playerRow.id));
+
+            const player = { ...playerRow, items: playerItems };
 
             if (!player.items || player.items.length === 0) {
                 return interaction.editReply({
@@ -93,15 +160,26 @@ module.exports = {
                     );
 
             const createItemEmbed = itemData =>
-                new EmbedBuilder()
-                    .setColor(0x57f287)
+                createEmbed('inventory')
                     .setTitle(`Editing Item: ${itemData.name}`)
                     .addFields(
                         { name: 'Name', value: itemData.name || 'N/A', inline: true },
                         { name: 'Type', value: itemData.type || 'N/A', inline: true },
                         { name: 'Quantity', value: String(itemData.quantity ?? 1), inline: true },
-                        { name: 'Effect', value: itemData.effect || '*None*', inline: false },
-                        { name: 'Description', value: itemData.description || '*None*', inline: false }
+                        { name: 'Weight', value: `${itemData.weight_grams ?? 0} g`, inline: true },
+                        { name: 'Value', value: `${itemData.price_kreuzer ?? 0} K`, inline: true },
+                        { name: 'Slot', value: itemData.default_slot || 'None', inline: true },
+                        {
+                            name: 'Armor',
+                            value: `RS ${itemData.armor_rs ?? 0} / BE ${itemData.armor_be ?? 0}`,
+                            inline: true,
+                        },
+                        { name: 'Effect', value: truncateText(itemData.effect, 1024, '*None*'), inline: false },
+                        {
+                            name: 'Description',
+                            value: truncateText(itemData.description, 1024, '*None*'),
+                            inline: false,
+                        }
                     );
 
             const exitButton = new ButtonBuilder()
@@ -117,7 +195,7 @@ module.exports = {
                 await modalInteraction.deferUpdate({ ephemeral: true });
 
                 try {
-                    const statKey = modalInteraction.customId.split('_')[2];
+                    const statKey = modalInteraction.customId.slice('edititem_modal_'.length);
                     const newValue = modalInteraction.fields.getTextInputValue('value');
                     const statConfig = ITEM_STAT_CONFIG.find(s => s.key === statKey);
                     if (!statConfig || !currentItem) return;
@@ -131,6 +209,14 @@ module.exports = {
                         const upper = newValue.toUpperCase();
                         if (!VALID_ITEM_TYPES.includes(upper)) return;
                         validatedValue = upper;
+                    } else if (statConfig.type === 'equipment_slot') {
+                        if (newValue.trim() === '') {
+                            validatedValue = null;
+                        } else {
+                            const upper = newValue.toUpperCase();
+                            if (!VALID_EQUIPMENT_SLOTS.includes(upper)) return;
+                            validatedValue = upper;
+                        }
                     } else if (statConfig.type === 'string_long') {
                         validatedValue = newValue.trim() === '' ? null : newValue;
                     } else {
@@ -139,20 +225,17 @@ module.exports = {
 
                     if (currentItem[statConfig.backendKey] === validatedValue) return;
 
-                    const { error: updateError } = await supabase
-                        .from('items')
-                        .update({ [statConfig.backendKey]: validatedValue })
-                        .eq('id', currentItem.id);
+                    const refreshedData = await db.transaction(async tx => {
+                        await tx
+                            .update(items)
+                            .set({ [statConfig.backendKey]: validatedValue })
+                            .where(and(eq(items.id, currentItem.id), eq(items.player_id, player.id)));
+                        await synchronizeEquipmentDerivedStatsInTransaction(tx, player.id);
+                        const [updated] = await tx.select().from(items).where(eq(items.id, currentItem.id)).limit(1);
+                        return updated;
+                    });
 
-                    if (updateError) throw updateError;
-
-                    const { data: refreshedData, error: refreshError } = await supabase
-                        .from('items')
-                        .select('*')
-                        .eq('id', currentItem.id)
-                        .single();
-
-                    if (refreshError) throw refreshError;
+                    if (!refreshedData) return;
                     currentItem = refreshedData;
 
                     await interaction.editReply({

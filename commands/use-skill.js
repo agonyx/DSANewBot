@@ -1,5 +1,7 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { supabase } = require('../utils/supabaseClient');
+const { db } = require('../db');
+const { eq, and } = require('drizzle-orm');
+const { players, playerActionModifications, actionModifications } = require('../db/schema');
 const { resolveCombatAction } = require('../handlers/combatHandler');
 const { createLogger } = require('../utils/logger');
 const log = createLogger('use-skill');
@@ -15,6 +17,25 @@ module.exports = {
                 .setDescription('The combat maneuver to use')
                 .setAutocomplete(true)
                 .setRequired(true)
+        )
+        .addStringOption(option =>
+            option
+                .setName('hit_zone')
+                .setDescription('Optional called-shot zone')
+                .addChoices(
+                    { name: 'Head', value: 'head' },
+                    { name: 'Torso', value: 'torso' },
+                    { name: 'Left arm', value: 'left_arm' },
+                    { name: 'Right arm', value: 'right_arm' },
+                    { name: 'Left leg', value: 'left_leg' },
+                    { name: 'Right leg', value: 'right_leg' }
+                )
+        )
+        .addIntegerOption(option =>
+            option.setName('distance').setDescription('Target distance for ranged attacks').setMinValue(0)
+        )
+        .addIntegerOption(option =>
+            option.setName('cover_penalty').setDescription('Cover penalty (0-4)').setMinValue(0).setMaxValue(4)
         ),
 
     async autocomplete(interaction) {
@@ -22,29 +43,32 @@ module.exports = {
         const { client, user } = interaction;
 
         try {
-            const { data: player } = await supabase
-                .from('players')
-                .select('id')
-                .eq('discord_id', user.id)
-                .eq('selected', 'YES')
-                .single();
+            const [player] = await db
+                .select({ id: players.id })
+                .from(players)
+                .where(and(eq(players.discord_id, user.id), eq(players.selected, 'YES')))
+                .limit(1);
 
             if (!player) return await interaction.respond([]);
 
-            const { data: skills } = await supabase
-                .from('player_action_modifications')
-                .select(
-                    `
-                    action_modification:action_modifications(id, name, action_type)
-                `
+            const skillRows = await db
+                .select({
+                    skill_id: actionModifications.id,
+                    skill_name: actionModifications.name,
+                    skill_action_type: actionModifications.action_type,
+                })
+                .from(playerActionModifications)
+                .innerJoin(
+                    actionModifications,
+                    eq(playerActionModifications.action_modification_id, actionModifications.id)
                 )
-                .eq('player_id', player.id);
+                .where(eq(playerActionModifications.player_id, player.id));
 
-            const meleeSkills = (skills || [])
-                .map(s => s.action_modification)
-                .filter(s => s && s.action_type === 'MELEE');
+            const combatSkills = skillRows
+                .filter(s => s.skill_id != null && ['MELEE', 'RANGED'].includes(s.skill_action_type))
+                .map(s => ({ id: s.skill_id, name: s.skill_name, action_type: s.skill_action_type }));
 
-            const choices = meleeSkills.map(skill => ({ name: skill.name, value: skill.id }));
+            const choices = combatSkills.map(skill => ({ name: skill.name, value: skill.id }));
             const filtered = choices.filter(choice => choice.name.toLowerCase().startsWith(focusedValue.toLowerCase()));
 
             await interaction.respond(filtered);
@@ -60,6 +84,9 @@ module.exports = {
         const { client, channelId, user } = interaction;
         const targetUser = interaction.options.getUser('target');
         const maneuverId = interaction.options.getString('maneuver');
+        const hitZone = interaction.options.getString('hit_zone');
+        const distance = interaction.options.getInteger('distance');
+        const coverPenalty = interaction.options.getInteger('cover_penalty') || 0;
 
         const sessionData = client.activeCombats.get(channelId);
         if (!sessionData || sessionData.state !== 'RUNNING') {
@@ -71,7 +98,7 @@ module.exports = {
             return interaction.editReply('❌ You are not in this combat.');
         }
 
-        const activeCombatantId = sessionData.turn_order[sessionData.current_turn_index];
+        const activeCombatantId = sessionData.turnOrder[sessionData.currentTurnIndex];
         if (attackerCombatant.id !== activeCombatantId) {
             return interaction.editReply("❌ It's not your turn!");
         }
@@ -81,14 +108,18 @@ module.exports = {
             return interaction.editReply('❌ The specified target is not in this combat.');
         }
 
-        const { data: playerSkill, error: skillError } = await supabase
-            .from('player_action_modifications')
-            .select('id')
-            .eq('player_id', attackerCombatant.player_id)
-            .eq('action_modification_id', maneuverId)
-            .single();
+        const [playerSkill] = await db
+            .select({ id: playerActionModifications.id })
+            .from(playerActionModifications)
+            .where(
+                and(
+                    eq(playerActionModifications.player_id, attackerCombatant.player_id),
+                    eq(playerActionModifications.action_modification_id, maneuverId)
+                )
+            )
+            .limit(1);
 
-        if (skillError || !playerSkill) {
+        if (!playerSkill) {
             return interaction.editReply('❌ You do not have access to this skill or it does not exist.');
         }
 
@@ -98,7 +129,13 @@ module.exports = {
             sessionData.id,
             attackerCombatant.id,
             targetCombatant.id,
-            maneuverId
+            maneuverId,
+            {
+                callerDiscordId: user.id,
+                hitZone,
+                distance,
+                coverPenalty,
+            }
         );
 
         await interaction.editReply(`Your skill use against ${targetUser.username} has been resolved.`);

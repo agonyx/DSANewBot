@@ -1,14 +1,15 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { supabase } = require('../utils/supabaseClient');
+const { SlashCommandBuilder } = require('discord.js');
+const { healCharacter } = require('../services/resources');
 const { createLogger } = require('../utils/logger');
+const { createEmbed, makeFooter, progressBar } = require('../utils/embedUtils');
 const log = createLogger('heal');
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('heal')
-        .setDescription('Heal your character or another character (DM only for others)')
+        .setDescription('Manually restore LeP to your character or another character (DM only for others)')
         .addIntegerOption(option =>
-            option.setName('amount').setDescription('Amount of HP to restore').setRequired(true).setMinValue(1)
+            option.setName('amount').setDescription('Amount of LeP to restore').setRequired(true).setMinValue(1)
         )
         .addUserOption(option =>
             option.setName('target').setDescription('Target character to heal (optional, defaults to yourself)')
@@ -19,86 +20,50 @@ module.exports = {
 
         const amount = interaction.options.getInteger('amount');
         const targetUser = interaction.options.getUser('target');
-        const isHealingSelf = !targetUser || targetUser.id === interaction.user.id;
+        const isSelf = !targetUser || targetUser.id === interaction.user.id;
+        const ctx = { discordId: interaction.user.id };
 
         try {
-            let targetDiscordId;
-
-            if (isHealingSelf) {
-                targetDiscordId = interaction.user.id;
-            } else {
-                targetDiscordId = targetUser.id;
-            }
-
-            const { data: player, error } = await supabase
-                .from('players')
-                .select(
-                    `
-                    id,
-                    name,
-                    stats:stats(id, le_max, le_current)
-                `
-                )
-                .eq('discord_id', targetDiscordId)
-                .eq('selected', 'YES')
-                .single();
-
-            if (error || !player?.stats) {
-                return interaction.editReply({
-                    content: isHealingSelf
-                        ? '❌ No character selected! Use `/choose-character` first.'
-                        : '❌ Target has no selected character.',
-                });
-            }
-
-            const stats = Array.isArray(player.stats) ? player.stats[0] : player.stats;
-            const currentHP = stats.le_current;
-            const maxHP = stats.le_max;
-            const newHP = Math.min(currentHP + amount, maxHP);
-            const actualHeal = newHP - currentHP;
+            const { characterName, oldValue, newValue, actualHeal, max } = await healCharacter(ctx, {
+                amount,
+                targetDiscordId: targetUser?.id,
+            });
 
             if (actualHeal === 0) {
                 return interaction.editReply({
-                    content: `**${player.name}** is already at full health! (${currentHP}/${maxHP} HP)`,
+                    content: `**${characterName}** is already at full health! (${oldValue}/${max} HP)`,
                 });
             }
 
-            const { error: updateError } = await supabase
-                .from('stats')
-                .update({ le_current: newHP })
-                .eq('id', stats.id);
+            const healthBar = progressBar(newValue, max);
+            const healthPercentage = Math.round((newValue / max) * 100);
 
-            if (updateError) throw updateError;
-
-            const healthBar =
-                '■'.repeat(Math.round((newHP / maxHP) * 10)) + '□'.repeat(10 - Math.round((newHP / maxHP) * 10));
-            const healthPercentage = Math.round((newHP / maxHP) * 100);
-
-            const embed = new EmbedBuilder()
-                .setColor(0x57f287)
+            const embed = createEmbed('success')
                 .setTitle('💚 Healing Applied')
-                .setDescription(`**${player.name}** has been healed!`)
+                .setDescription(`**${characterName}** has been healed!`)
                 .addFields(
                     { name: 'Healing', value: `+${actualHeal} HP`, inline: true },
-                    { name: 'Previous HP', value: `${currentHP}/${maxHP}`, inline: true },
-                    { name: 'Current HP', value: `${newHP}/${maxHP}`, inline: true }
+                    { name: 'Previous HP', value: `${oldValue}/${max}`, inline: true },
+                    { name: 'Current HP', value: `${newValue}/${max}`, inline: true }
                 )
-                .addFields({
-                    name: 'Health Bar',
-                    value: `${healthBar} **${healthPercentage}%**`,
-                })
-                .setFooter({
-                    text: `Healed by ${interaction.user.username}`,
-                    iconURL: interaction.user.avatarURL(),
-                })
+                .addFields({ name: 'Health Bar', value: `${healthBar} **${healthPercentage}%**` })
+                .setFooter(makeFooter(interaction.user, 'Healed by'))
                 .setTimestamp();
 
             return interaction.editReply({ embeds: [embed] });
         } catch (error) {
+            if (error.status === 404) {
+                return interaction.editReply({
+                    content: isSelf
+                        ? '❌ No character selected! Use `/character select` first.'
+                        : '❌ Target has no selected character.',
+                });
+            }
+            if (error.status === 400) {
+                return interaction.editReply({ content: `❌ ${error.data?.error || error.message}` });
+            }
             log.error({ error }, 'Heal command error');
-            return interaction.editReply({
-                content: `❌ An error occurred: ${error.message}`,
-            });
+            return interaction.editReply({ content: `❌ An error occurred: ${error.message}` });
         }
     },
 };

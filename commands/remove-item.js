@@ -5,7 +5,8 @@ const {
     ButtonBuilder,
     ButtonStyle,
 } = require('discord.js');
-const { supabase } = require('../utils/supabaseClient');
+const { listItems, removeItem } = require('../services/inventory');
+const { getSelectedPlayer } = require('../services/characters');
 const { createLogger } = require('../utils/logger');
 const log = createLogger('remove-item');
 
@@ -18,26 +19,10 @@ module.exports = {
         await interaction.deferReply({ ephemeral: true });
 
         try {
-            const { data: player, error } = await supabase
-                .from('players')
-                .select(
-                    `
-                    id,
-                    name,
-                    items:items(*)
-                `
-                )
-                .eq('discord_id', interaction.user.id)
-                .eq('selected', 'YES')
-                .single();
+            const player = await getSelectedPlayer({ discordId: interaction.user.id });
+            const itemsList = await listItems({ discordId: interaction.user.id });
 
-            if (error || !player) {
-                return interaction.editReply({
-                    content: 'No selected character! Use /choose-character first',
-                });
-            }
-
-            if (!player.items || player.items.length === 0) {
+            if (!itemsList || itemsList.length === 0) {
                 return interaction.editReply({
                     content: 'Your character has no items to remove.',
                 });
@@ -47,7 +32,7 @@ module.exports = {
                 .setCustomId('remove_item_select')
                 .setPlaceholder('Select an item to remove')
                 .addOptions(
-                    player.items.map(item => ({
+                    itemsList.map(item => ({
                         label: item.name,
                         description: `Type: ${item.type || 'N/A'} | Qty: ${item.quantity || 1}`,
                         value: item.id.toString(),
@@ -69,7 +54,7 @@ module.exports = {
             collector.on('collect', async i => {
                 if (i.customId === 'remove_item_select') {
                     const itemId = i.values[0];
-                    const item = player.items.find(item => item.id.toString() === itemId);
+                    const item = itemsList.find(it => it.id.toString() === itemId);
 
                     const confirmButton = new ButtonBuilder()
                         .setCustomId(`remove_confirm_${itemId}`)
@@ -92,16 +77,21 @@ module.exports = {
                     collector.stop();
                 } else if (i.customId.startsWith('remove_confirm_')) {
                     const itemId = i.customId.replace('remove_confirm_', '');
-                    const item = player.items.find(item => item.id.toString() === itemId);
+                    const item = itemsList.find(it => it.id.toString() === itemId);
 
-                    const { error: deleteError } = await supabase.from('items').delete().eq('id', itemId);
-
-                    if (deleteError) throw deleteError;
-
-                    await i.update({
-                        content: `✅ **${item.name}** has been removed from **${player.name}**'s inventory.`,
-                        components: [],
-                    });
+                    try {
+                        await removeItem({ discordId: interaction.user.id }, parseInt(itemId));
+                        await i.update({
+                            content: `✅ **${item.name}** has been removed from **${player.name}**'s inventory.`,
+                            components: [],
+                        });
+                    } catch (error) {
+                        log.error({ error }, 'Remove item confirm error');
+                        await i.update({
+                            content: `❌ ${error.data?.error || error.message}`,
+                            components: [],
+                        });
+                    }
                     collector.stop();
                 }
             });
@@ -117,6 +107,9 @@ module.exports = {
                 }
             });
         } catch (error) {
+            if (error.status === 404) {
+                return interaction.editReply({ content: 'No selected character! Use `/character select` first.' });
+            }
             log.error({ error }, 'Remove item error');
             interaction.editReply({
                 content: '❌ Failed to remove item.',

@@ -1,4 +1,5 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
+const { createEmbed } = require('../utils/embedUtils');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -15,7 +16,10 @@ module.exports = {
                     { name: 'Items & Inventory', value: 'items' },
                     { name: 'Weapons', value: 'weapons' },
                     { name: 'Skills', value: 'skills' },
+                    { name: 'Magic & Karma', value: 'supernatural' },
+                    { name: 'Equipment & Economy', value: 'economy' },
                     { name: 'Mobs (DM)', value: 'mobs' },
+                    { name: 'Campaign (DM)', value: 'campaign' },
                     { name: 'Regelwiki', value: 'regelwiki' },
                     { name: 'Utility', value: 'utility' }
                 )
@@ -31,39 +35,55 @@ module.exports = {
             });
         }
 
-        const helpEmbed = new EmbedBuilder()
-            .setColor(0x2f3136)
+        const helpEmbed = createEmbed('neutral')
             .setTitle('📚 DSA Bot Help')
-            .setDescription('A Discord bot for **DSA (Das Schwarze Auge) 5th Edition** combat management.')
+            .setDescription(
+                'A Discord bot for **DSA (Das Schwarze Auge) 5th Edition** combat management. Safe display commands are private by default; set `visible:true` to show their result to everyone.'
+            )
             .addFields(
                 {
                     name: '👤 Character',
-                    value: '`/create-character` `/choose-character` `/show-stats` `/edit-stats` `/upload-avatar` `/delete-character`',
+                    value: '`/character` `/background` `/companion` `/reputation` `/crafting` `/alchemy` `/advance` `/schicksalspunkte` `/asp` `/kap`',
                     inline: false,
                 },
                 {
                     name: '⚔️ Combat',
-                    value: '`/start-combat` `/end-combat` `/park-combat` `/resume-combat` `/attack` `/evade` `/use-skill`',
+                    value: '`/combat` `/attack-check` `/attack-resolve` `/evade-check` `/maneuver use` `/combat-action` `/condition` `/status` `/effect`',
                     inline: false,
                 },
                 {
                     name: '🎒 Items & Inventory',
-                    value: '`/show-items` `/add-item` `/remove-item` `/use-item` `/heal`',
+                    value: '`/inventory` (aliases: `/inv`, `/items`)',
                     inline: false,
                 },
                 {
                     name: '🗡️ Weapons',
-                    value: '`/show-weapons` `/add-weapon` `/equip-weapon` `/delete-weapon`',
+                    value: '`/weapon`',
+                    inline: false,
+                },
+                {
+                    name: '💰 Equipment & Economy',
+                    value: '`/wallet` `/shop` `/equipment` `/trade` `/loot`',
                     inline: false,
                 },
                 {
                     name: '📋 Skills',
-                    value: '`/show-skills` `/edit-skills`',
+                    value: '`/ability list` `/maneuver` `/probe`',
+                    inline: false,
+                },
+                {
+                    name: '🔮 Magic & Karma',
+                    value: '`/tradition` `/spells` `/liturgies` `/casting` `/miracle`',
                     inline: false,
                 },
                 {
                     name: '👾 Mobs (DM Only)',
-                    value: '`/add-mob` `/edit-mob` `/show-mob` `/list-mobs`',
+                    value: '`/mob`',
+                    inline: false,
+                },
+                {
+                    name: '🗺️ Campaign (DM Only)',
+                    value: '`/party view` `/initiative` `/session-notes` `/campaign`',
                     inline: false,
                 },
                 {
@@ -73,11 +93,11 @@ module.exports = {
                 },
                 {
                     name: '🎲 Utility',
-                    value: '`/roll` `/help`',
+                    value: '`/roll` `/macro` `[[inline dice]]` `/help`',
                     inline: false,
                 }
             )
-            .setFooter({ text: 'Use /help <category> for detailed information on a category.' });
+            .setFooter({ text: 'Use /help category:<category> for detailed information.' });
 
         return interaction.reply({ embeds: [helpEmbed], ephemeral: true });
     },
@@ -85,78 +105,146 @@ module.exports = {
 
 function getCategoryHelp(category) {
     const categories = {
-        character: new EmbedBuilder()
-            .setColor(0x2f3136)
+        character: createEmbed('character')
             .setTitle('👤 Character Commands')
             .setDescription('Manage your DSA character')
             .addFields(
-                { name: '/create-character', value: 'Create a new character' },
-                { name: '/choose-character', value: 'Select which of your characters to play' },
-                { name: '/show-stats', value: "View your character's stats and health" },
-                { name: '/edit-stats', value: 'Interactively edit your stats' },
-                { name: '/upload-avatar', value: 'Upload a custom character avatar' },
-                { name: '/delete-character', value: 'Permanently delete a character' }
+                { name: '/character create', value: 'Create a new character' },
+                { name: '/character select', value: 'Select which of your characters to play' },
+                { name: '/character sheet', value: "View your selected character's complete sheet" },
+                { name: '/character edit', value: 'Interactively edit the selected character sheet' },
+                { name: '/character export', value: 'Download the selected character sheet as UTF-8 text' },
+                {
+                    name: '/character import',
+                    value: 'Preview and import Foundry DSA5, Optolith, DSANewBot JSON, or supported fillable DSA PDFs',
+                },
+                {
+                    name: '/character import-report',
+                    value: 'Inspect fields or catalog entries preserved as unresolved during import',
+                },
+                { name: '/character avatar', value: 'Upload a custom character avatar' },
+                { name: '/character delete', value: 'Permanently delete a character' },
+                {
+                    name: '/character restore-lep',
+                    value: 'Manually restore LeP to yourself, or another character as DM',
+                },
+                { name: '/schicksalspunkte', value: 'Spend, restore, set, or show Fate Points' },
+                { name: '/asp', value: 'Spend, restore, set, or show Astral Points' },
+                { name: '/kap', value: 'Spend, restore, set, or show Karma Points' },
+                { name: '/regeneration', value: 'Regenerate LeP, AsP, KaP, and one aggregate wound' },
+                { name: '/treat-wounds', value: 'Apply a Heilkunde Wunden treatment' },
+                {
+                    name: '/advance',
+                    value: 'Show/award AP and improve attributes, talents, supernatural FW, or abilities',
+                },
+                { name: '/background', value: 'Set or show culture and profession' },
+                { name: '/companion', value: 'Manage familiars, companions, mounts, and riding animals' },
+                { name: '/reputation', value: 'Show faction standings' },
+                { name: '/crafting', value: 'Track crafting projects and progress' },
+                { name: '/alchemy', value: 'Browse recipes and track potion brews' }
             ),
 
-        combat: new EmbedBuilder()
-            .setColor(0x2f3136)
+        combat: createEmbed('combat')
             .setTitle('⚔️ Combat Commands')
             .setDescription('Combat encounter management')
             .addFields(
-                { name: '/start-combat', value: 'Initialize a new combat encounter (DM)' },
-                { name: '/end-combat', value: 'End the current combat session' },
-                { name: '/park-combat', value: 'Pause combat to resume later' },
-                { name: '/resume-combat', value: 'Resume a paused combat session' },
-                { name: '/attack', value: 'Make an attack roll' },
-                { name: '/evade', value: 'Attempt to dodge an attack' },
-                { name: '/use-skill', value: 'Use a combat skill/maneuver' }
+                { name: '/combat start', value: 'Initialize a new combat encounter' },
+                { name: '/combat end', value: 'End the current combat session as its DM' },
+                { name: '/combat pause', value: 'Pause combat to resume later' },
+                { name: '/combat resume', value: 'Resume a paused combat session' },
+                { name: '/combat log', value: 'Show the latest active or ended log for this channel' },
+                { name: '/attack-check', value: 'Make a target-free, non-mutating attack roll' },
+                {
+                    name: '/attack-resolve',
+                    value: 'Explicitly resolve a mutating tracked-combat attack with defender choice',
+                },
+                { name: '/evade-check', value: 'Make a standalone evasion roll outside tracked combat' },
+                { name: '/maneuver use', value: 'Use a combat maneuver' },
+                {
+                    name: '/combat-action',
+                    value: 'Fallback slash access to special actions; the combat panel Choose action menu exposes the complete flow',
+                },
+                { name: '/condition', value: 'Add, remove, or list leveled combat conditions' },
+                { name: '/status', value: 'Add, remove, or list binary combat statuses with optional DOT/penalties' },
+                { name: '/effect', value: 'Add, remove, or list persistent combat buffs and debuffs (DM)' }
             ),
 
-        items: new EmbedBuilder()
-            .setColor(0x2f3136)
+        items: createEmbed('inventory')
             .setTitle('🎒 Items & Inventory Commands')
             .setDescription('Manage your inventory')
             .addFields(
-                { name: '/show-items', value: 'View your inventory' },
-                { name: '/add-item', value: 'Add an item to your inventory' },
-                { name: '/remove-item', value: 'Remove an item from inventory' },
-                { name: '/use-item', value: 'Use a consumable item (potions, food, etc.)' },
-                { name: '/heal', value: 'Restore HP to your character (or another as DM)' }
+                { name: '/inventory list', value: 'View your carried items and consumables' },
+                { name: '/inventory add', value: 'Add an item to your inventory' },
+                { name: '/inventory edit', value: 'Edit an owned item and its equipment metadata' },
+                { name: '/inventory remove', value: 'Remove an item from inventory' },
+                { name: '/inventory use', value: 'Use a consumable item (potions, food, etc.)' },
+                { name: '/inv and /items', value: 'Complete aliases for /inventory' }
             ),
 
-        weapons: new EmbedBuilder()
-            .setColor(0x2f3136)
+        weapons: createEmbed('combat')
             .setTitle('🗡️ Weapon Commands')
             .setDescription('Manage your weapons')
             .addFields(
-                { name: '/show-weapons', value: 'View your equipped weapons' },
-                { name: '/add-weapon', value: 'Add a new weapon to your character' },
-                { name: '/equip-weapon', value: 'Equip a weapon to a slot' },
-                { name: '/delete-weapon', value: 'Remove a weapon permanently' }
+                { name: '/weapon list', value: 'View your weapons' },
+                { name: '/weapon add', value: 'Add a new weapon to your character' },
+                { name: '/weapon edit', value: 'Edit weapon stats, ranges, reload, and hand requirement' },
+                { name: '/weapon equip', value: 'Equip a weapon to a slot' },
+                { name: '/weapon delete', value: 'Remove a weapon permanently' }
             ),
 
-        skills: new EmbedBuilder()
-            .setColor(0x2f3136)
+        skills: createEmbed('character')
             .setTitle('📋 Skill Commands')
             .setDescription('Combat skills and maneuvers')
             .addFields(
-                { name: '/show-skills', value: 'View your assigned combat skills' },
-                { name: '/edit-skills', value: 'Assign or unassign combat skills' }
+                { name: '/ability list', value: 'View learned combat, magical, and karmic special abilities' },
+                { name: '/advance special', value: 'Learn a special ability by spending AP' },
+                { name: '/maneuver list', value: 'Browse the combat maneuver catalog' },
+                { name: '/maneuver show', value: 'Show rules and prerequisites for a maneuver' },
+                { name: '/maneuver use', value: 'Use a learned maneuver in combat' },
+                { name: '/probe', value: 'Roll a learned talent probe with optional modifier' }
             ),
 
-        mobs: new EmbedBuilder()
-            .setColor(0x2f3136)
+        supernatural: createEmbed('magic')
+            .setTitle('🔮 Magic & Karma Commands')
+            .setDescription('Traditions, learned abilities, casting, ceremonies, and miracles')
+            .addFields(
+                {
+                    name: '/tradition',
+                    value: 'Show or configure magical/blessed tradition, deity, and favored talents',
+                },
+                { name: '/spells', value: 'Browse, learn, inspect, and cast spells or rituals' },
+                { name: '/liturgies', value: 'Browse, learn, inspect, and perform liturgies or ceremonies' },
+                { name: '/casting complete', value: 'Complete a finished extended ritual or ceremony' },
+                { name: '/casting cancel', value: 'Interrupt an extended casting and recover half its resource cost' },
+                { name: '/miracle', value: 'Spend 4 KaP for +2 to a favored talent, next AT, or next PA' },
+                { name: '/casting status', value: 'Show pending castings and active tracked effects' },
+                { name: '/asp', value: 'Manage the Astral Point pool used by spells' },
+                { name: '/kap', value: 'Manage the Karma Point pool used by liturgies and miracles' }
+            ),
+
+        economy: createEmbed('economy')
+            .setTitle('💰 Equipment & Economy Commands')
+            .setDescription('Money, shopping, load, armor, trades, and post-combat rewards')
+            .addFields(
+                { name: '/wallet', value: 'Show the ledger or record a signed tabletop money adjustment' },
+                { name: '/shop', value: 'Browse the seeded catalog, buy equipment, or sell at half price' },
+                { name: '/equipment', value: 'Equip armor/clothing and show RS, weight, capacity, and Belastung' },
+                { name: '/trade', value: 'Offer, list, accept, decline, or cancel atomic character trades' },
+                { name: '/loot', value: 'Generate and distribute tiered post-combat loot (DM)' }
+            ),
+
+        mobs: createEmbed('combat')
             .setTitle('👾 Mob Commands (DM Only)')
             .setDescription('Create and manage NPC templates for combat')
             .addFields(
-                { name: '/add-mob', value: 'Create a new mob template' },
-                { name: '/edit-mob', value: 'Edit an existing mob template' },
-                { name: '/show-mob', value: 'View mob template details' },
-                { name: '/list-mobs', value: 'List all available mob templates' }
+                { name: '/mob add', value: 'Create a new mob template (Manage Server)' },
+                { name: '/mob edit', value: 'Edit an existing mob template (Manage Server)' },
+                { name: '/mob delete', value: 'Delete an existing mob template (Manage Server)' },
+                { name: '/mob show', value: 'View mob template details' },
+                { name: '/mob list', value: 'List all available mob templates' }
             ),
 
-        regelwiki: new EmbedBuilder()
-            .setColor(0x2f3136)
+        regelwiki: createEmbed('rules')
             .setTitle('📖 Regelwiki Commands')
             .setDescription('Search the DSA 5e rules database (7,000+ rules from the Regelwiki)')
             .addFields(
@@ -172,13 +260,36 @@ function getCategoryHelp(category) {
                 }
             ),
 
-        utility: new EmbedBuilder()
-            .setColor(0x2f3136)
+        campaign: createEmbed('info')
+            .setTitle('🗺️ Campaign Commands (DM Only)')
+            .setDescription('Guild-scoped party, world, quest, location, and integration records')
+            .addFields(
+                { name: '/party view', value: 'Show the enrolled party overview (Manage Server)' },
+                { name: '/initiative', value: 'Track a persistent non-combat turn order per channel' },
+                { name: '/session-notes add|list|show|edit|delete', value: 'Maintain persistent guild session notes' },
+                { name: '/campaign quest', value: 'Manage quests and objectives' },
+                { name: '/campaign npc|encounter', value: 'Generate quick NPCs and roll weighted encounters' },
+                { name: '/campaign world|map|stronghold', value: 'Track time, weather, maps, and bases' },
+                { name: '/campaign faction|alchemy', value: 'Manage factions, standing, and recipe catalogs' },
+                { name: '/campaign webhook', value: 'Manage signed API/webhook integrations' },
+                { name: '/campaign backup', value: 'Create or restore bounded campaign JSON backups' }
+            ),
+
+        utility: createEmbed('info')
             .setTitle('🎲 Utility Commands')
             .setDescription('General utility commands')
             .addFields(
                 { name: '/roll <dice>', value: 'Roll dice using DSA notation (e.g., `/roll 1w20`, `/roll 3w6+2`)' },
                 { name: '/roll <dice> visible:true', value: 'Make the roll visible to everyone' },
+                {
+                    name: '/roll <dice> animated:true',
+                    value: 'Publish exact roll data to a configured Foundry Dice So Nice webhook',
+                },
+                { name: '/macro save|roll|list|delete', value: 'Manage reusable, per-character dice expressions' },
+                {
+                    name: '[[2w6+3]]',
+                    value: 'Roll dice inline inside an ordinary Discord message (up to 10 per message)',
+                },
                 { name: '/help', value: 'Show this help message' },
                 { name: '/help <category>', value: 'Get detailed help for a specific category' }
             ),

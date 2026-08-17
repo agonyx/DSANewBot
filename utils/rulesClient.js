@@ -1,16 +1,25 @@
 /**
- * Rule knowledge base utilities using Supabase pgvector + OpenAI embeddings.
- * Supports the future `rule_pages` + `rule_chunks` schema and the current
- * live fallback schema based on `rule_documents`.
+ * Rule knowledge base utilities — pgvector semantic search + page lookups,
+ * backed by self-hosted Postgres (Drizzle). OpenAI text-embedding-3-large (1536-dim).
+ *
+ * Migrated from Supabase: the legacy rule_documents/search_rules fallbacks are gone
+ * (only rule_pages/rule_chunks + match_rule_chunks() exist in the new schema).
  */
 
 const OpenAI = require('openai');
-const { supabase } = require('./supabaseClient');
+const { db } = require('../db');
+const { sql, eq, and, isNull, ilike } = require('drizzle-orm');
+const { rulePages } = require('../db/schema');
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+let openai = null;
 
-function isMissingDbObject(error) {
-    return error && ['PGRST202', 'PGRST205', '42P01', '42883'].includes(error.code);
+function getOpenAiClient() {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+        throw new Error('OPENAI_API_KEY is required for semantic rules search');
+    }
+    openai ??= new OpenAI({ apiKey });
+    return openai;
 }
 
 function normalizeSearchResult(result) {
@@ -42,7 +51,7 @@ function normalizePageResult(result) {
 }
 
 async function createQueryEmbedding(query) {
-    const response = await openai.embeddings.create({
+    const response = await getOpenAiClient().embeddings.create({
         model: 'text-embedding-3-large',
         input: query.replace(/\n+/g, ' ').substring(0, 8000),
         dimensions: 1536,
@@ -56,7 +65,7 @@ async function createQueryEmbedding(query) {
  * @param {string} query - Natural language query
  * @param {Object} options - Search options
  * @param {string} [options.category] - Filter by category
- * @param {number} [options.threshold=0.7] - Minimum similarity threshold
+ * @param {number} [options.threshold=0.5] - Minimum similarity threshold
  * @param {number} [options.limit=3] - Maximum results
  * @param {boolean} [options.includeUnresolved=false] - Include unresolved scraper docs
  * @returns {Promise<Array>} Matching rules with similarity scores
@@ -72,39 +81,19 @@ async function searchRules(query, options = {}) {
 
     try {
         const queryEmbedding = await createQueryEmbedding(query);
+        const embeddingLiteral = `[${queryEmbedding.join(',')}]`;
 
-        const structuredSearch = await supabase.rpc('match_rule_chunks', {
-            query_embedding: queryEmbedding,
-            match_threshold: threshold,
-            match_count: expandedLimit,
-            filter_category: category,
-            include_unresolved: includeUnresolved,
-        });
+        const rows = await db.execute(sql`
+            select * from match_rule_chunks(
+                ${embeddingLiteral}::vector,
+                ${threshold},
+                ${expandedLimit},
+                ${category},
+                ${includeUnresolved}
+            )
+        `);
 
-        if (!structuredSearch.error) {
-            return (structuredSearch.data || []).map(normalizeSearchResult).slice(0, limit);
-        }
-
-        if (!isMissingDbObject(structuredSearch.error)) {
-            throw structuredSearch.error;
-        }
-
-        const legacySearch = await supabase.rpc('search_rules', {
-            query_embedding: queryEmbedding,
-            match_threshold: threshold,
-            match_count: expandedLimit,
-            filter_category: category,
-        });
-
-        if (legacySearch.error) {
-            throw legacySearch.error;
-        }
-
-        const filtered = includeUnresolved
-            ? legacySearch.data || []
-            : (legacySearch.data || []).filter(result => !result.metadata?.is_unresolved);
-
-        return filtered.map(normalizeSearchResult).slice(0, limit);
+        return (rows || []).map(normalizeSearchResult).slice(0, limit);
     } catch (error) {
         console.error('Error searching rules:', error.message);
         return [];
@@ -113,102 +102,89 @@ async function searchRules(query, options = {}) {
 
 /**
  * Get rules for a specific category.
- * Prefers the new page table and falls back to the legacy document table.
  * @param {string} category - Category to fetch
  * @param {number} [limit=10] - Maximum results
  * @returns {Promise<Array>} Rules in category
  */
 async function getRulesByCategory(category, limit = 10) {
-    let response = await supabase
-        .from('rule_pages')
-        .select('id, doc_id, title, normalized_content, source_url, metadata')
-        .eq('category', category)
-        .is('deleted_at', null)
-        .order('title')
-        .limit(limit);
-
-    if (response.error && isMissingDbObject(response.error)) {
-        response = await supabase
-            .from('rule_documents')
-            .select('id, title, content, source_url, metadata')
-            .eq('category', category)
-            .order('title')
+    try {
+        const rows = await db
+            .select({
+                id: rulePages.id,
+                doc_id: rulePages.doc_id,
+                title: rulePages.title,
+                normalized_content: rulePages.normalized_content,
+                source_url: rulePages.source_url,
+                metadata: rulePages.metadata,
+            })
+            .from(rulePages)
+            .where(and(eq(rulePages.category, category), isNull(rulePages.deleted_at)))
+            .orderBy(rulePages.title)
             .limit(limit);
-    }
 
-    if (response.error) {
-        console.error('Error fetching rules by category:', response.error.message);
+        return rows.map(normalizePageResult);
+    } catch (error) {
+        console.error('Error fetching rules by category:', error.message);
         return [];
     }
-
-    return (response.data || []).map(normalizePageResult);
 }
 
 /**
  * Quick lookup for a specific rule by title.
- * Prefers the new page table and falls back to the legacy document table.
  * @param {string} title - Rule title to find
  * @returns {Promise<Object|null>} Rule document or null
  */
 async function getRuleByTitle(title) {
-    let response = await supabase
-        .from('rule_pages')
-        .select('id, doc_id, title, normalized_content, category, resolved_category, source_url, metadata')
-        .ilike('title', `%${title}%`)
-        .is('deleted_at', null)
-        .limit(1)
-        .single();
+    try {
+        const rows = await db
+            .select({
+                id: rulePages.id,
+                doc_id: rulePages.doc_id,
+                title: rulePages.title,
+                normalized_content: rulePages.normalized_content,
+                category: rulePages.category,
+                resolved_category: rulePages.resolved_category,
+                source_url: rulePages.source_url,
+                metadata: rulePages.metadata,
+            })
+            .from(rulePages)
+            .where(and(ilike(rulePages.title, `%${title}%`), isNull(rulePages.deleted_at)))
+            .limit(1);
 
-    if (response.error && isMissingDbObject(response.error)) {
-        response = await supabase
-            .from('rule_documents')
-            .select('id, title, content, category, source_url, metadata')
-            .ilike('title', `%${title}%`)
-            .limit(1)
-            .single();
-    }
-
-    if (response.error) {
-        if (response.error.code !== 'PGRST116') {
-            console.error('Error fetching rule by title:', response.error.message);
+        if (!rows.length) {
+            return null;
         }
+        return normalizePageResult(rows[0]);
+    } catch (error) {
+        console.error('Error fetching rule by title:', error.message);
         return null;
     }
-
-    return normalizePageResult(response.data);
 }
 
 /**
  * Get autocomplete-ready page title records from rule_pages.
  * Returns lightweight rows with normalized lowercase fields for fast filtering.
- * Falls back to legacy rule_documents table if rule_pages is unavailable.
  * @returns {Promise<Array<{doc_id: string, title: string, title_lower: string, category: string, resolved_category: string|null, source_url: string}>>}
  */
 async function getRulePageTitles() {
-    let response = await supabase
-        .from('rule_pages')
-        .select('doc_id, title, category, resolved_category, source_url')
-        .is('deleted_at', null)
-        .order('title');
+    const rows = await db
+        .select({
+            doc_id: rulePages.doc_id,
+            title: rulePages.title,
+            category: rulePages.category,
+            resolved_category: rulePages.resolved_category,
+            source_url: rulePages.source_url,
+        })
+        .from(rulePages)
+        .where(isNull(rulePages.deleted_at))
+        .orderBy(rulePages.title);
 
-    if (response.error && isMissingDbObject(response.error)) {
-        response = await supabase
-            .from('rule_documents')
-            .select('id, title, category, source_url, metadata')
-            .order('title');
-    }
-
-    if (response.error) {
-        throw response.error;
-    }
-
-    // Normalize to consistent shape with lowercase fields for fast filtering
-    return (response.data || []).map(row => ({
-        doc_id: row.doc_id || row.id?.toString() || '',
+    return rows.map(row => ({
+        doc_id: row.doc_id || '',
         title: row.title || '',
         title_lower: (row.title || '').toLowerCase(),
         category: row.category || '',
-        resolved_category: row.resolved_category || row.metadata?.resolved_category || null,
+        resolved_category: row.resolved_category || null,
         source_url: row.source_url || '',
     }));
 }
@@ -313,17 +289,24 @@ function deduplicateSemanticResults(semanticResults, limit) {
  * @returns {Promise<Object|null>} Page with content or null
  */
 async function fetchPageContent(docId) {
-    const response = await supabase
-        .from('rule_pages')
-        .select('doc_id, title, normalized_content, category, resolved_category, source_url, metadata')
-        .eq('doc_id', docId)
-        .single();
+    const rows = await db
+        .select({
+            doc_id: rulePages.doc_id,
+            title: rulePages.title,
+            normalized_content: rulePages.normalized_content,
+            category: rulePages.category,
+            resolved_category: rulePages.resolved_category,
+            source_url: rulePages.source_url,
+            metadata: rulePages.metadata,
+        })
+        .from(rulePages)
+        .where(eq(rulePages.doc_id, docId))
+        .limit(1);
 
-    if (response.error) {
+    if (!rows.length) {
         return null;
     }
-
-    return normalizePageResult(response.data);
+    return normalizePageResult(rows[0]);
 }
 
 /**

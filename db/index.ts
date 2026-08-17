@@ -28,3 +28,6 @@ export const db = drizzle(pool, { schema });
 export async function closeDb(): Promise<void> {
     await pool.end();
 }
+
+// Re-export the Edge Function bridge so call sites can import { db, callEdgeFunction } from '../db'.
+export { callEdgeFunction } from './edgeBridge';

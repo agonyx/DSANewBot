@@ -59,12 +59,13 @@ Wundschwelle = KO ÷ 2 (half of Constitution, rounded down)
 
 ### Trait Modifiers
 
-| Trait | Type | Effect |
-|-------|------|--------|
-| Eisern | Advantage (Vorteil) | +1 Wundschwelle |
+| Trait   | Type                    | Effect          |
+| ------- | ----------------------- | --------------- |
+| Eisern  | Advantage (Vorteil)     | +1 Wundschwelle |
 | Gläsern | Disadvantage (Nachteil) | -1 Wundschwelle |
 
 **Modified Formula:**
+
 ```
 Wundschwelle = floor(KO / 2) + eisern_bonus + gläsern_penalty
 ```
@@ -290,9 +291,9 @@ A combat maneuver that causes the bleeding status.
 1. Attacker declares Tiefe Wunde maneuver
 2. Attack is made at -2 AT penalty
 3. If attack succeeds and defense fails:
-   - Damage is calculated normally
-   - If at least 1 SP is inflicted, target must make Selbstbeherrschung check
-   - On failed check, target gains Blutend status for `7 - QS` combat rounds
+    - Damage is calculated normally
+    - If at least 1 SP is inflicted, target must make Selbstbeherrschung check
+    - On failed check, target gains Blutend status for `7 - QS` combat rounds
 
 ### Notes
 
@@ -310,17 +311,17 @@ Acquired through deep wounds or critical hits.
 
 - deep wounds: Critical hits
 - tiefe wunde maneuver:
-  - attack modifier: -2 AT
-  - requirement: Must inflict at least 1 SP damage
-  - effect: Causes bleeding status on target
+    - attack modifier: -2 AT
+    - requirement: Must inflict at least 1 SP damage
+    - effect: Causes bleeding status on target
 - certain weapons: e.g., Blutiger Zweihänder - Bloody Two-Hander
 
 ### On Acquisition
 
 - check required: Selbstbeherrschung check required when bleeding starts
 - duration: `7 - QS` combat rounds (CR)
-  - patzer (Fumble): Duration doubled
-  - critical success: Bleeding stops immediately
+    - patzer (Fumble): Duration doubled
+    - critical success: Bleeding stops immediately
 
 ### Effect
 
@@ -380,31 +381,31 @@ A disease caused by untreated or poorly treated wounds.
 - cause: Wound fever with a rolled 1 for cause determination
 - effect: 1W3 SP/day, Status Krank, 1-4 levels of Stun/Pain/Confusion
 - check: Heilkunde Wunden (Amputieren) +0 to -6
-  - success: 2W6 SP, limb removed (gain Verstümmelt disadvantage)
-  - failure: 6W6 SP, 50% chance of Wound Fever
+    - success: 2W6 SP, limb removed (gain Verstümmelt disadvantage)
+    - failure: 6W6 SP, 50% chance of Wound Fever
 
 ### Bone Fractures
 
 - cause: 15+ TP from blunt weapons, falls, etc. (1-2 on W20 = 10%)
 - effect: Limb unusable, possible -2 GS, 1-2 levels Pain
 - check: Heilkunde Wunden (Knochenbrüche) +0 to -6
-  - success: 1W3-1 SP (Trümmerbruch: +1W6 SP)
-  - failure: 1W6+1 SP, 20% Wound Fever (open fracture)
+    - success: 1W3-1 SP (Trümmerbruch: +1W6 SP)
+    - failure: 1W6+1 SP, 20% Wound Fever (open fracture)
 
 ### Severe Burns
 
 - cause: Fire, cold, acid (1-2 to 1-10 on W20 depending on area)
 - effect: Disadvantage Hässlich I (temporary), 1-3 levels Pain
 - check: Heilkunde Wunden (Verbrennungen) -2 to -4
-  - failure: 1W6 days of 1W3 SP each
+    - failure: 1W6 days of 1W3 SP each
 
 ### Chirurgischer Eingriff (Surgery)
 
 - cause: 20+ SP from single attack (1 on W20 = 5%), diseases, poisons
 - effect: Damaged organ causes 1W6 SP/day (double for vital organs)
 - check: Heilkunde Wunden (Chirurgie) -5 to -11
-  - success: 3W6+6 SP, 10% Wound Fever
-  - failure: 6W6+12 SP, 75% Wundfieber
+    - success: 3W6+6 SP, 10% Wound Fever
+    - failure: 6W6+12 SP, 75% Wundfieber
 
 ---
 
@@ -420,9 +421,27 @@ A disease caused by untreated or poorly treated wounds.
 
 - check: Heilkunde Wunden (Stabilisieren)
 - difficulty: Penalty = half of negative LeP (rounded down)
-  - example: At -6 LeP, difficulty is -3
+    - example: At -6 LeP, difficulty is -3
 - time: ~15 minutes
 - success: LeP rises to 1
+
+---
+
+## DSANewBot Aggregate-Wound Profile
+
+The product roadmap commits an aggregate wound counter rather than the full hit-location focus system. The following bridge rules are deliberate so the counter has consistent effects without pretending that zone-specific injuries are implemented:
+
+- A damage event inflicts one wound for every full wound threshold reached, capped at three wounds from one hit. Wounds accumulate independently from LeP.
+- Every accumulated wound applies `-1` to AT, PA, and each of the three attributes used by a talent probe. The applied penalty is capped at `-3`.
+- At three wounds, a combatant is incapacitated: they cannot attack or defend until at least one wound heals.
+- One aggregate wound heals after every completed regeneration phase. This is the natural-healing cadence for the aggregate model; hit-zone recovery times are not inferred.
+- `Heilung fördern` stores its LeP bonus for the next regeneration phase instead of healing immediately. Only the highest pending bonus is retained, preventing repeated treatment from stacking.
+- `Schmerzen nehmen` suppresses at most four Schmerz levels. A normal success lasts through the next regeneration phase; a critical success lasts through two phases. A fumble adds one temporary Schmerz level until regeneration.
+- Failed stabilization attempts add the documented cumulative `-1` retry penalty. Success sets LeP to 1 and clears the retry counter. Targets at or below `-KO` cannot be stabilized.
+- LeP may become negative so stabilization rules are reachable. This replaces the earlier zero-floor behavior in combat damage.
+- Treatment applications are audited in `wound_treatments`; Discord and HTTP use the same authorization and business-rule service.
+
+Hit locations, resistance checks, called shots, and special injuries remain separate focus-rule work and are not implied by the aggregate counter.
 
 ---
 
@@ -430,17 +449,18 @@ A disease caused by untreated or poorly treated wounds.
 
 ### Phase 1: Pain System
 
-- [ ] Add pain level calculation based on LP thresholds
+- [x] Add pain level calculation based on LP thresholds
 - [ ] Apply pain penalties to all checks
 - [ ] Apply GS reduction from pain
 - [ ] Handle incapacitation at Pain Stufe IV
 
 ### Phase 2: Wound Threshold
 
-- [ ] Add Wundschwelle field to stats (KO ÷ 2)
-- [ ] Add trait modifiers (Eisern +1, Gläsern -1)
+- [x] Add Wundschwelle field to stats (KO ÷ 2)
+- [x] Add an explicit Wundschwelle modifier field (Eisern +1, Gläsern -1)
 - [ ] Look up character advantages/disadvantages for Wundschwelle calculation
-- [ ] Track damage against wound threshold in combat
+- [x] Track damage against wound threshold in combat
+- [x] Apply aggregate wound penalties, natural recovery, and incapacitation
 - [ ] Implement Selbstbeherrschung resistance checks
 - [ ] Apply wound effects by hit zone
 
@@ -460,17 +480,17 @@ A disease caused by untreated or poorly treated wounds.
 
 ### Phase 5: Bleeding Status
 
-- [ ] Add Blutend status effect
+- [x] Add Blutend status effect
 - [ ] Track duration in combat rounds
 - [ ] Apply 1 SP at end of each round
-- [ ] Implement Heilkunde Wunden treatment (see `heilkunde-wunden.md`)
+- [x] Implement Heilkunde Wunden treatment (see `heilkunde-wunden.md`)
 
 ### Phase 5.5: Wound Treatment
 
-- [ ] Add Heilung fördern (promote healing) application
-- [ ] Add Schmerzen nehmen (remove pain) application
-- [ ] Add Stabilisieren (stabilize) for dying characters
-- [ ] Add bleeding treatment mechanics
+- [x] Add Heilung fördern (promote healing) application
+- [x] Add Schmerzen nehmen (remove pain) application
+- [x] Add Stabilisieren (stabilize) for dying characters
+- [x] Add bleeding treatment mechanics
 
 ### Phase 6: Special Injuries (Optional)
 
@@ -520,11 +540,11 @@ ALTER TABLE combatants ADD COLUMN creature_size VARCHAR(20) DEFAULT 'medium'; --
 
 ---
 
-*Source: https://dsa.ulisses-regelwiki.de/Sta_Schmerz.html*
-*Source: https://dsa.ulisses-regelwiki.de/Fokus_TrefferzonenRegeln.html*
-*Source: https://dsa.ulisses-regelwiki.de/GR_Status.html*
-*Source: https://dsa.ulisses-regelwiki.de/TA_Selbstbeherrschung.html*
-*Source: https://dsa.ulisses-regelwiki.de/vorteil.html?vorteil=Eisern*
-*Source: https://dsa.ulisses-regelwiki.de/nachteil.html?nachteil=Gläsern*
+_Source: https://dsa.ulisses-regelwiki.de/Sta_Schmerz.html_
+_Source: https://dsa.ulisses-regelwiki.de/Fokus_TrefferzonenRegeln.html_
+_Source: https://dsa.ulisses-regelwiki.de/GR_Status.html_
+_Source: https://dsa.ulisses-regelwiki.de/TA_Selbstbeherrschung.html_
+_Source: https://dsa.ulisses-regelwiki.de/vorteil.html?vorteil=Eisern_
+_Source: https://dsa.ulisses-regelwiki.de/nachteil.html?nachteil=Gläsern_
 
 **See also:** `heilkunde-wunden.md` for wound treatment mechanics

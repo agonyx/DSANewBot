@@ -14,12 +14,23 @@ const {
     ModalBuilder,
     TextInputBuilder,
     TextInputStyle,
-    EmbedBuilder,
 } = require('discord.js');
 
-const { supabase, callEdgeFunction } = require('../utils/supabaseClient');
+const { db, callEdgeFunction } = require('../db');
+const { eq, and } = require('drizzle-orm');
+// `stats` is aliased to `statsTable` because the original handler already declares a
+// local `const stats = ...` inside handleJoinCombatInteraction; importing it unaliased
+// would put that line in the temporal-dead-zone of the inner binding and break the query.
+const { players, stats: statsTable, mobs, combatSessions, combatants } = require('../db/schema');
 const { createSetupEmbed, createSetupActionRows } = require('../utils/combatComponents');
+const {
+    buildCombatSetupComponentPayload,
+    buildNoticeComponentPayload,
+    editComponentMessage,
+    messageUsesComponentsV2,
+} = require('../utils/componentViews');
 const { createLogger } = require('../utils/logger');
+const { beginCombat } = require('../services/combat');
 
 const log = createLogger('combat-setup');
 
@@ -33,22 +44,24 @@ async function handleJoinCombatInteraction(interaction, sessionId) {
     const discordId = interaction.user.id;
 
     try {
-        log.debug({ discordId }, 'Fetching selected character from Supabase');
-        const { data: character, error } = await supabase
-            .from('players')
-            .select('*, stats:stats(*)')
-            .eq('discord_id', discordId)
-            .eq('selected', 'YES')
-            .single();
+        log.debug({ discordId }, 'Fetching selected character');
+        const [character] = await db
+            .select()
+            .from(players)
+            .where(and(eq(players.discord_id, discordId), eq(players.selected, 'YES')))
+            .limit(1);
 
-        if (error || !character) {
-            log.warn({ discordId, error: error?.message }, 'Could not retrieve selected character');
+        if (!character) {
+            log.warn({ discordId }, 'Could not retrieve selected character');
             await interaction.followUp({
                 content: '❌ No character selected. Use `/choosecharacter` first.',
                 ephemeral: true,
             });
             return;
         }
+
+        const [statsRow] = await db.select().from(statsTable).where(eq(statsTable.player_id, character.id)).limit(1);
+        character.stats = statsRow || null;
 
         const stats = Array.isArray(character.stats) ? character.stats[0] : character.stats;
         if (!stats) {
@@ -137,16 +150,19 @@ async function addCombatantPlayer(interaction, sessionId, player) {
 async function updateSetupMessage(client, sessionId) {
     try {
         log.debug({ sessionId }, 'Fetching session for setup message update');
-        const { data: updatedSession, error: sessionError } = await supabase
-            .from('combat_sessions')
-            .select('*, combatants(*)')
-            .eq('id', sessionId)
-            .single();
+        const [updatedSession] = await db
+            .select()
+            .from(combatSessions)
+            .where(eq(combatSessions.id, sessionId))
+            .limit(1);
 
-        if (sessionError || !updatedSession) {
-            log.error({ error: sessionError?.message, sessionId }, 'Failed to fetch updated session');
+        if (!updatedSession) {
+            log.error({ sessionId }, 'Failed to fetch updated session');
             return;
         }
+
+        const sessionCombatants = await db.select().from(combatants).where(eq(combatants.session_id, sessionId));
+        updatedSession.combatants = sessionCombatants;
 
         if (updatedSession?.message_id && updatedSession?.combatants) {
             const channel = await client.channels.fetch(updatedSession.channel_id).catch(() => null);
@@ -170,13 +186,18 @@ async function updateSetupMessage(client, sessionId) {
             const canStart =
                 updatedSession.state === 'SETUP' && updatedSession.combatants?.length >= 2 && hasPlayers && hasHostiles;
 
-            const newEmbed = createSetupEmbed(sessionId, dmUsername, updatedSession.combatants, canStart);
             const newActionRows = createSetupActionRows(sessionId, canStart);
-
-            await originalMessage.edit({
-                embeds: [newEmbed],
-                components: newActionRows,
-            });
+            if (messageUsesComponentsV2(originalMessage)) {
+                await editComponentMessage(
+                    originalMessage,
+                    buildCombatSetupComponentPayload(sessionId, dmUsername, updatedSession.combatants, canStart, {
+                        actionRows: newActionRows,
+                    })
+                );
+            } else {
+                const newEmbed = createSetupEmbed(sessionId, dmUsername, updatedSession.combatants, canStart);
+                await originalMessage.edit({ embeds: [newEmbed], components: newActionRows });
+            }
             log.info({ sessionId, canStart }, 'Setup message updated');
         }
     } catch (error) {
@@ -194,14 +215,13 @@ async function handleLeaveSetupInteraction(interaction, sessionId) {
     const discordId = interaction.user.id;
 
     try {
-        const { data, error } = await supabase
-            .from('combatants')
-            .select('*')
-            .eq('session_id', sessionId)
-            .eq('discord_user_id', discordId)
-            .single();
+        const [data] = await db
+            .select()
+            .from(combatants)
+            .where(and(eq(combatants.session_id, sessionId), eq(combatants.discord_user_id, discordId)))
+            .limit(1);
 
-        if (error || !data?.id) {
+        if (!data?.id) {
             await interaction.followUp({ content: "❌ You haven't joined this combat setup.", ephemeral: true });
             return;
         }
@@ -209,13 +229,7 @@ async function handleLeaveSetupInteraction(interaction, sessionId) {
         const combatantToDelete = data;
         log.debug({ combatantId: combatantToDelete.id }, 'Deleting combatant');
 
-        const { error: deleteError } = await supabase.from('combatants').delete().eq('id', combatantToDelete.id);
-
-        if (deleteError) {
-            log.error({ error: deleteError.message }, 'Failed to delete combatant');
-            await interaction.followUp({ content: `❌ Failed to leave: ${deleteError.message}.`, ephemeral: true });
-            return;
-        }
+        await db.delete(combatants).where(eq(combatants.id, combatantToDelete.id));
 
         log.info({ combatantId: combatantToDelete.id }, 'Combatant deleted');
         await updateSetupMessage(interaction.client, sessionId);
@@ -233,11 +247,7 @@ async function showAddMobModal(interaction, sessionId) {
     log.info({ sessionId, userId: interaction.user.id }, 'Showing Add Mob Modal');
 
     try {
-        const { data: session, error } = await supabase
-            .from('combat_sessions')
-            .select('*')
-            .eq('id', sessionId)
-            .single();
+        const [session] = await db.select().from(combatSessions).where(eq(combatSessions.id, sessionId)).limit(1);
 
         if (!session) {
             await interaction.reply({ content: 'Not found', ephemeral: true });
@@ -282,15 +292,15 @@ async function handleAddMobSubmitInteraction(interaction, sessionId) {
         let mobTemplate;
         try {
             log.debug({ mobName: requestedMobName }, 'Fetching mob template');
-            const { data, error } = await supabase.from('mobs').select('*').eq('name', requestedMobName).single();
+            const [data] = await db.select().from(mobs).where(eq(mobs.name, requestedMobName)).limit(1);
 
-            if (error || !data?.id) throw new Error('Mob template not found or incomplete.');
+            if (!data?.id) throw new Error('Mob template not found or incomplete.');
             mobTemplate = data;
             log.debug({ mobId: mobTemplate.id }, 'Found mob template');
         } catch (fetchError) {
             log.warn({ mobName: requestedMobName }, 'Mob template not found');
             return interaction.followUp({
-                content: `❌ Mob template named "**${requestedMobName}**" not found. Use \`/list-mobs\` or ensure exact spelling.`,
+                content: `❌ Mob template named "**${requestedMobName}**" not found. Use \`/mob list\` or ensure exact spelling.`,
                 ephemeral: true,
             });
         }
@@ -346,15 +356,14 @@ async function handleManageParticipantsInteraction(interaction, sessionId) {
     await interaction.deferReply({ ephemeral: true });
 
     try {
-        const { data: session, error } = await supabase
-            .from('combat_sessions')
-            .select('*, combatants(*)')
-            .eq('id', sessionId)
-            .single();
+        const [session] = await db.select().from(combatSessions).where(eq(combatSessions.id, sessionId)).limit(1);
 
-        if (error || !session?.id) {
+        if (!session?.id) {
             return interaction.editReply({ content: '❌ Could not fetch setup details.' });
         }
+
+        const sessionCombatants = await db.select().from(combatants).where(eq(combatants.session_id, sessionId));
+        session.combatants = sessionCombatants;
 
         if (session.dm_user_id !== interaction.user.id) {
             return interaction.editReply({ content: '❌ Only the DM can manage participants.' });
@@ -397,24 +406,15 @@ async function handleRemoveParticipantSelectInteraction(interaction, sessionId) 
     await interaction.deferUpdate({ ephemeral: true });
 
     try {
-        const { data: session, error } = await supabase
-            .from('combat_sessions')
-            .select('*')
-            .eq('id', sessionId)
-            .single();
+        const [session] = await db.select().from(combatSessions).where(eq(combatSessions.id, sessionId)).limit(1);
 
-        if (error || !session || session.dm_user_id !== interaction.user.id) {
+        if (!session || session.dm_user_id !== interaction.user.id) {
             return interaction.followUp({ content: `❌ You are no longer the DM for this session.`, ephemeral: true });
         }
 
         const dmUserId = session.dm_user_id;
 
-        const { error: deleteError } = await supabase.from('combatants').delete().eq('id', combatantIdToRemove);
-
-        if (deleteError) {
-            log.error({ error: deleteError.message, combatantId: combatantIdToRemove }, 'Failed to delete combatant');
-            return interaction.editReply({ content: `❌ Failed to remove: ${deleteError.message}.`, components: [] });
-        }
+        await db.delete(combatants).where(eq(combatants.id, combatantIdToRemove));
 
         log.info({ combatantId: combatantIdToRemove }, 'Combatant removed');
         await updateSetupMessage(interaction.client, sessionId);
@@ -437,111 +437,35 @@ async function handleRemoveParticipantSelectInteraction(interaction, sessionId) 
 async function handleStartFightInteraction(interaction, sessionId) {
     log.info({ sessionId, userId: interaction.user.id }, 'Handling Start Fight');
     await interaction.deferReply({ ephemeral: true });
+    const ctx = { discordId: interaction.user.id };
 
-    const { rollDice } = require('../utils/combatUtils');
     const { sessionToMemory } = require('../utils/transforms');
     const { addLogEntry, updateCombatDisplay } = require('./combatTurnHandler');
 
     try {
-        const { data: session, error } = await supabase
-            .from('combat_sessions')
-            .select('*, combatants(*)')
-            .eq('id', sessionId)
-            .single();
-
-        if (error || !session?.id) {
-            return interaction.editReply({ content: '❌ Could not fetch setup details.' });
+        // service.beginCombat validates DM + SETUP state + counts/sides, rolls
+        // initiative, transitions to RUNNING, sets turn order + first active,
+        // and initializes current_round.
+        let started;
+        try {
+            started = await beginCombat(ctx, sessionId);
+        } catch (error) {
+            return interaction.editReply({ content: `❌ ${error.data?.error || error.message}` });
         }
 
-        if (session.dm_user_id !== interaction.user.id) {
-            return interaction.editReply({ content: '❌ Only the DM can start the fight.' });
-        }
-        if (session.state !== 'SETUP') {
-            return interaction.editReply({ content: `❌ Cannot start. Current state: ${session.state}.` });
-        }
-
-        const combatants = session.combatants;
-
-        if (!combatants || combatants.length < 2) {
-            return interaction.editReply({ content: '❌ Need at least 2 participants.' });
-        }
-
-        const hasPlayers = combatants.some(c => c.allegiance === 'PLAYER_SIDE');
-        const hasHostiles = combatants.some(c => c.allegiance === 'HOSTILE');
-        if (!hasPlayers || !hasHostiles) {
-            return interaction.editReply({ content: '❌ Need participants from opposing sides.' });
-        }
-
-        log.debug({ sessionId }, 'Rolling initiative');
-        combatants.forEach(c => {
-            const baseIni = c.initiative_base ?? 0;
-            c.initiativeRoll = rollDice(6) + baseIni;
-            log.debug({ combatant: c.name, roll: c.initiativeRoll, base: baseIni }, 'Initiative rolled');
-        });
-
-        combatants.sort((a, b) => {
-            if (b.initiativeRoll !== a.initiativeRoll) {
-                return b.initiativeRoll - a.initiativeRoll;
-            }
-            return (b.initiative_base ?? 0) - (a.initiative_base ?? 0);
-        });
-
-        const turnOrder = combatants.map(c => c.id);
-        const combatantInitiatives = combatants.map(c => ({
-            combatantId: c.id,
-            initiativeRoll: c.initiativeRoll,
-        }));
-
-        log.debug({ turnOrder }, 'Turn order determined');
-
-        const startPayload = {
-            sessionId: sessionId,
-            turnOrder: turnOrder,
-            combatantInitiatives: combatantInitiatives,
-        };
-
-        log.debug({ sessionId }, 'Calling start-combat Edge Function');
-        const {
-            data: updatedSessionData,
-            status,
-            error: startError,
-        } = await callEdgeFunction('start-combat', startPayload);
-
-        if (startError || (status !== 200 && status !== 201)) {
-            log.error({ status, error: startError?.message }, 'Edge function failed');
-            return interaction.editReply({ content: `❌ ${startError?.message || 'Failed to start combat.'}` });
-        }
-
-        log.info({ sessionId }, 'Combat started successfully');
-
-        if (typeof updatedSessionData.current_round !== 'number' || updatedSessionData.current_round < 1) {
-            const { error: roundUpdateError } = await supabase
-                .from('combat_sessions')
-                .update({ current_round: 1 })
-                .eq('id', sessionId);
-
-            if (roundUpdateError) {
-                log.error({ sessionId, error: roundUpdateError.message }, 'Failed to initialize combat round');
-                return interaction.editReply({ content: '❌ Failed to initialize combat round.' });
-            }
-
-            updatedSessionData.current_round = 1;
-        }
-
-        const memorySession = sessionToMemory(updatedSessionData);
-        memorySession.currentRound = memorySession.currentRound || 1;
+        const memorySession = sessionToMemory(started);
+        memorySession.currentRound = started.current_round || 1;
 
         if (!interaction.client.activeCombats) {
             interaction.client.activeCombats = new Map();
         }
-        interaction.client.activeCombats.set(session.channel_id, memorySession);
+        interaction.client.activeCombats.set(started.channel_id, memorySession);
 
-        const firstCombatantName =
-            updatedSessionData.combatants.find(c => c.id === updatedSessionData.turn_order[0])?.name || 'Unknown';
-        await addLogEntry(interaction.client, session.channel_id, sessionId, `--- Combat Started! ---`);
-        await addLogEntry(interaction.client, session.channel_id, sessionId, `--- ${firstCombatantName}'s Turn ---`);
+        const firstCombatantName = started.combatants.find(c => c.id === started.turn_order[0])?.name || 'Unknown';
+        await addLogEntry(interaction.client, started.channel_id, sessionId, `--- Combat Started! ---`);
+        await addLogEntry(interaction.client, started.channel_id, sessionId, `--- ${firstCombatantName}'s Turn ---`);
 
-        await updateCombatDisplay(interaction.client, session.channel_id, memorySession);
+        await updateCombatDisplay(interaction.client, started.channel_id, memorySession);
 
         await interaction.editReply({ content: '✅ Combat started!' });
         setTimeout(() => {
@@ -567,19 +491,13 @@ async function handleCancelCombatInteraction(interaction, sessionId) {
     await interaction.deferReply({ ephemeral: true });
 
     try {
-        const { data: session, error } = await supabase
-            .from('combat_sessions')
-            .select('*')
-            .eq('id', sessionId)
-            .single();
+        const [session] = await db.select().from(combatSessions).where(eq(combatSessions.id, sessionId)).limit(1);
 
-        if (error || !session) throw new Error('Not found');
+        if (!session) throw new Error('Not found');
         if (session.dm_user_id !== interaction.user.id) throw new Error('Not DM');
         if (session.state !== 'SETUP') throw new Error(`Wrong state ${session.state}`);
 
-        const { error: deleteError } = await supabase.from('combat_sessions').delete().eq('id', sessionId);
-
-        if (deleteError) throw deleteError;
+        await db.delete(combatSessions).where(eq(combatSessions.id, sessionId));
 
         log.info({ sessionId }, 'Session deleted');
 
@@ -588,7 +506,14 @@ async function handleCancelCombatInteraction(interaction, sessionId) {
             if (channel?.isTextBased()) {
                 const msg = await channel.messages.fetch(session.message_id).catch(() => {});
                 if (msg) {
-                    await msg.edit({ content: `*Setup cancelled.*`, embeds: [], components: [] }).catch(() => {});
+                    if (messageUsesComponentsV2(msg)) {
+                        await editComponentMessage(
+                            msg,
+                            buildNoticeComponentPayload('*Setup cancelled.*', { theme: 'error' })
+                        ).catch(() => {});
+                    } else {
+                        await msg.edit({ content: `*Setup cancelled.*`, embeds: [], components: [] }).catch(() => {});
+                    }
                 }
             }
         }

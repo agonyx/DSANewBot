@@ -1,6 +1,5 @@
 const {
     SlashCommandBuilder,
-    EmbedBuilder,
     ActionRowBuilder,
     StringSelectMenuBuilder,
     ModalBuilder,
@@ -9,10 +8,10 @@ const {
     ButtonBuilder,
     ButtonStyle,
     PermissionFlagsBits,
-    Interaction,
 } = require('discord.js');
-const { supabase } = require('../utils/supabaseClient');
+const { getMob, updateMob, listMobs } = require('../services/mobs');
 const { createLogger } = require('../utils/logger');
+const { createEmbed, truncateText } = require('../utils/embedUtils');
 const log = createLogger('edit-mob');
 
 const MOB_STAT_CONFIG = [
@@ -82,18 +81,10 @@ module.exports = {
 
     async autocomplete(interaction) {
         const focusedValue = interaction.options.getFocused();
-
         try {
-            const { data: mobs } = await supabase
-                .from('mobs')
-                .select('name')
-                .order('name');
-
-            const choices = (mobs || []).map(m => ({ name: m.name, value: m.name }));
-            const filtered = choices.filter(c =>
-                c.name.toLowerCase().includes(focusedValue.toLowerCase())
-            );
-
+            const mobRows = await listMobs({ discordId: interaction.user.id });
+            const choices = (mobRows || []).map(m => ({ name: m.name, value: m.name }));
+            const filtered = choices.filter(c => c.name.toLowerCase().includes(focusedValue.toLowerCase()));
             await interaction.respond(filtered.slice(0, 25));
         } catch (error) {
             log.error({ error }, 'Autocomplete error');
@@ -103,24 +94,12 @@ module.exports = {
 
     async execute(interaction) {
         const mobNameToEdit = interaction.options.getString('name');
-        const instanceId = interaction.id;
+        const ctx = { discordId: interaction.user.id };
 
         try {
             await interaction.deferReply({ ephemeral: true });
 
-            const { data: mob, error: fetchError } = await supabase
-                .from('mobs')
-                .select('*')
-                .eq('name', mobNameToEdit)
-                .single();
-
-            if (fetchError || !mob) {
-                return interaction.editReply({
-                    content: `❌ Mob template named **${mobNameToEdit}** not found.`,
-                });
-            }
-
-            let currentMob = mob;
+            let currentMob = await getMob(ctx, mobNameToEdit);
 
             const createMobStatSelect = currentMobData =>
                 new StringSelectMenuBuilder()
@@ -135,10 +114,9 @@ module.exports = {
                     );
 
             const createMobStatsEmbed = currentMobData =>
-                new EmbedBuilder()
-                    .setColor(0x8b4513)
+                createEmbed('combat')
                     .setTitle(`🔧 Editing Mob: ${currentMobData.name} (ID: ${currentMobData.id})`)
-                    .setDescription(currentMobData.description || '*No description.*')
+                    .setDescription(truncateText(currentMobData.description, 4096, '*No description.*'))
                     .addFields(
                         MOB_STAT_CONFIG.filter(s => s.key !== 'description').map(stat => ({
                             name: `**${stat.label}**`,
@@ -196,21 +174,10 @@ module.exports = {
 
                     if (currentMob[statConfig.backendKey] === validatedValue) return;
 
-                    const { error: updateError } = await supabase
-                        .from('mobs')
-                        .update({ [statConfig.backendKey]: validatedValue })
-                        .eq('id', currentMob.id);
-
-                    if (updateError) throw updateError;
-
-                    const { data: refreshedData, error: refreshError } = await supabase
-                        .from('mobs')
-                        .select('*')
-                        .eq('id', currentMob.id)
-                        .single();
-
-                    if (refreshError) throw refreshError;
-                    currentMob = refreshedData;
+                    currentMob = await updateMob(ctx, {
+                        id: currentMob.id,
+                        patch: { [statConfig.backendKey]: validatedValue },
+                    });
 
                     await interaction.editReply({
                         embeds: [createMobStatsEmbed(currentMob)],
@@ -220,7 +187,7 @@ module.exports = {
                         ],
                     });
                 } catch (error) {
-                    log.error({ error, instanceId }, 'Modal handler error');
+                    log.error({ error }, 'Modal handler error');
                 }
             };
 
@@ -274,6 +241,19 @@ module.exports = {
                 interaction.client.removeListener('interactionCreate', modalHandler);
             });
         } catch (error) {
+            if (error.status === 404) {
+                const msg = `❌ Mob template named **${mobNameToEdit}** not found.`;
+                try {
+                    if (!interaction.deferred && !interaction.replied) {
+                        await interaction.reply({ content: msg, ephemeral: true });
+                    } else {
+                        await interaction.editReply({ content: msg });
+                    }
+                } catch (replyError) {
+                    log.error({ error: replyError }, 'Error sending not-found reply');
+                }
+                return;
+            }
             log.error({ error, interactionId: interaction.id }, 'EditMob main error');
             const errorMsg = '❌ Failed to initialize mob editor!';
             try {

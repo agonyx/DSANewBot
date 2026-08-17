@@ -1,12 +1,20 @@
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const { supabase } = require('../utils/supabaseClient');
-const { createSetupEmbed, createSetupActionRows } = require('../utils/combatComponents');
+const { SlashCommandBuilder } = require('discord.js');
+const { db } = require('../db');
+const { eq, and, inArray } = require('drizzle-orm');
+const { combatSessions } = require('../db/schema');
+const { createSetupActionRows } = require('../utils/combatComponents');
+const {
+    buildCombatSetupComponentPayload,
+    buildNoticeComponentPayload,
+    deferForComponents,
+    editDeferredComponents,
+} = require('../utils/componentViews');
 const { createLogger } = require('../utils/logger');
 const log = createLogger('start-combat');
 
 async function executeStartCombat(interaction) {
     try {
-        await interaction.deferReply();
+        await deferForComponents(interaction);
     } catch (deferError) {
         log.error({ error: deferError }, 'Failed to defer reply');
         return;
@@ -17,56 +25,56 @@ async function executeStartCombat(interaction) {
     const dmUsername = interaction.user.username;
 
     try {
-        const { data: existingSession } = await supabase
-            .from('combat_sessions')
-            .select('id')
-            .eq('channel_id', channelId)
-            .in('state', ['SETUP', 'RUNNING', 'PAUSED'])
-            .single();
+        const [existingSession] = await db
+            .select()
+            .from(combatSessions)
+            .where(
+                and(
+                    eq(combatSessions.channel_id, channelId),
+                    inArray(combatSessions.state, ['SETUP', 'RUNNING', 'PAUSED'])
+                )
+            )
+            .limit(1);
 
         if (existingSession) {
-            return interaction.editReply({
-                content: 'An active combat session already exists in this channel.',
-                ephemeral: true,
-            });
+            return editDeferredComponents(
+                interaction,
+                buildNoticeComponentPayload('⚠️ An active combat session already exists in this channel.')
+            );
         }
 
-        const { data: session, error } = await supabase
-            .from('combat_sessions')
-            .insert({
+        const [session] = await db
+            .insert(combatSessions)
+            .values({
                 channel_id: channelId,
                 dm_user_id: dmUserId,
                 state: 'SETUP',
             })
-            .select()
-            .single();
+            .returning();
 
-        if (error || !session) {
-            log.error({ error }, 'Failed to create session');
-            return interaction.editReply({
-                content: `Failed to create combat session.`,
-                ephemeral: true,
-            });
+        if (!session) {
+            log.error('Failed to create session');
+            return editDeferredComponents(
+                interaction,
+                buildNoticeComponentPayload('❌ Failed to create combat session.', { theme: 'error' })
+            );
         }
 
         const sessionId = session.id;
         log.info({ sessionId }, 'Combat session created successfully');
 
-        const setupEmbed = createSetupEmbed(sessionId, dmUsername, [], false);
         const initialActionRows = createSetupActionRows(sessionId, false);
+        const setupMessage = await editDeferredComponents(
+            interaction,
+            buildCombatSetupComponentPayload(sessionId, dmUsername, [], false, { actionRows: initialActionRows })
+        );
 
-        const setupMessage = await interaction.editReply({
-            embeds: [setupEmbed],
-            components: initialActionRows,
-            fetchReply: true,
-        });
-
-        const { error: updateError } = await supabase
-            .from('combat_sessions')
-            .update({ message_id: setupMessage.id })
-            .eq('id', sessionId);
-
-        if (updateError) {
+        try {
+            await db
+                .update(combatSessions)
+                .set({ message_id: setupMessage.id })
+                .where(eq(combatSessions.id, sessionId));
+        } catch (updateError) {
             log.error(
                 { error: updateError, sessionId, messageId: setupMessage.id },
                 'Failed to update session with message ID'
@@ -79,10 +87,12 @@ async function executeStartCombat(interaction) {
     } catch (error) {
         log.error({ error }, 'Error in executeStartCombat function');
         try {
-            await interaction.editReply({
-                content: `❌ An error occurred while starting combat setup: ${error.message}`,
-                ephemeral: true,
-            });
+            await editDeferredComponents(
+                interaction,
+                buildNoticeComponentPayload(`❌ An error occurred while starting combat setup: ${error.message}`, {
+                    theme: 'error',
+                })
+            );
         } catch (replyError) {
             log.error({ error: replyError }, 'Failed to send error reply');
         }
